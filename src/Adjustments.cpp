@@ -489,4 +489,65 @@ void applyColorBalance(QImage &dest, const CbParams &p)
     }
 }
 
+// ============================== Exposure ==============================
+namespace {
+
+// sRGB 字节 → 线性光 [0,1](IEC 61966-2-1 反伽马)
+// 直译自上游 ExposureSettings.table
+inline double srgbToLinear(double v)
+{
+    return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+}
+
+// 线性光 [0,1] → sRGB 字节 [0,1]
+inline double linearToSrgb(double v)
+{
+    v = std::max(0.0, v);
+    return v <= 0.0031308 ? v * 12.92 : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055;
+}
+
+// 生成 Exposure 调色的 256 项 LUT(直译自上游 ExposureSettings.table)
+QVector<int> buildExposureLut(const ExposureParams &p)
+{
+    QVector<int> lut(256);
+    const double scale = std::pow(2.0, p.exposure);
+    // 直译上游:pow(..., 1 / gamma) → 1/p.gamma;
+    // 上游注释:"gamma above 1 brightens the midtones"
+    // 在线性光域中,g 值作用于归一化前;把"亮度归一化"理解为:
+    //   linear = pow(linear_orig, gamma)   (gamma>1 让中调变亮)
+    // 等价于上式的 pow(linear, 1/p.gamma) — 上游用 1/gamma
+    const double gammaExp = 1.0 / std::max(0.01, p.gamma);
+    for (int i = 0; i < 256; ++i) {
+        const double encoded = i / 255.0;
+        double linear = srgbToLinear(encoded);
+        // 线性光域:乘 2^ev,加 offset,gamma 校正
+        linear = std::pow(std::max(0.0, linear * scale + p.offset), gammaExp);
+        const double out = linearToSrgb(linear);
+        lut[i] = int(std::lround(std::clamp(out, 0.0, 1.0) * 255.0));
+    }
+    return lut;
+}
+
+} // namespace
+
+void applyExposure(QImage &dest, const ExposureParams &params)
+{
+    if (dest.isNull() || dest.format() != QImage::Format_ARGB32)
+        return;
+    // identity:exposure=0, offset=0, gamma=1
+    if (qFuzzyIsNull(params.exposure) && qFuzzyIsNull(params.offset) && qFuzzyCompare(params.gamma, 1.0))
+        return;
+    const QVector<int> lut = buildExposureLut(params);
+    for (int y = 0; y < dest.height(); ++y) {
+        for (int x = 0; x < dest.width(); ++x) {
+            const QRgb px = dest.pixel(x, y);
+            const int a  = qAlpha(px);
+            const int r  = lut.at(qRed(px));
+            const int g  = lut.at(qGreen(px));
+            const int b  = lut.at(qBlue(px));
+            dest.setPixel(x, y, qRgba(r, g, b, a));
+        }
+    }
+}
+
 } // namespace adj

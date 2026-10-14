@@ -135,4 +135,20 @@ struct CbParams
 
 void applyColorBalance(QImage &dest, const CbParams &params);
 
+// ============================== Exposure ==============================
+// Photoshop "Exposure" / Photo CIE 调整:
+//   sRGB 字节 → 线性光 → exposure + offset + gamma → sRGB 字节
+//   三个参数:
+//     exposure:-20..+20 (EV 档),线性光域乘 2^ev
+//     offset  :-0.5..+0.5     线性光加法
+//     gamma   :0.01..9.99    1/gamma
+struct ExposureParams
+{
+    double exposure = 0;
+    double offset   = 0;
+    double gamma    = 1;
+};
+
+void applyExposure(QImage &dest, const ExposureParams &params);
+
 } // namespace adj

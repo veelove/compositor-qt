@@ -39,6 +39,9 @@ private slots:
     void adjBlackWhiteTint();
     void adjColorBalanceIdentity();
     void adjColorBalanceShift();
+    void adjExposureIdentity();
+    void adjExposurePlus1EV();
+    void adjExposureGamma();
 };
 
 void TestDocument::addRemoveLayer()
@@ -562,6 +565,86 @@ void TestDocument::adjColorBalanceShift()
     QCOMPARE(img.pixelColor(1, 1).red(), 255);
     QCOMPARE(img.pixelColor(1, 1).green(), 255);
     QCOMPARE(img.pixelColor(1, 1).blue(), 255);
+}
+
+// ============================== Exposure ==============================
+// 注意:Exposure 经 sRGB ↔ 线性光 ↔ sRGB 完整往返,会有少量 sRGB 量化误差(±1 字节)
+void TestDocument::adjExposureIdentity()
+{
+    // identity 路径:exposure=0,offset=0,gamma=1 → 早退,像素不变
+    QImage img = makeGray4();
+    QImage before = img;
+    adj::ExposureParams p; // 全 0/1 默认
+    adj::applyExposure(img, p);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            QCOMPARE(img.pixel(x, y), before.pixel(x, y));
+
+    // 边界 LUT:0 和 255 必须精确(无 sRGB 量化误差)
+    adj::ExposureParams p2; p2.exposure = 0.0001; // 几乎 identity,触发 LUT 构建
+    adj::applyExposure(img, p2); // 让 LUT 构建,验证 0/255
+    // 不验证具体值(已 identity 早退),主要证明 identity 早退分支
+    QCOMPARE(img.pixelColor(0, 0).red(), 0); // 未被改动
+    QCOMPARE(img.pixelColor(1, 1).red(), 255);
+}
+
+void TestDocument::adjExposurePlus1EV()
+{
+    // +1 EV:线性光域乘 2。18% 灰(约 118 字节)在 sRGB 编码下应明显变亮
+    // 验证 LUT 边界:0 应该仍接近 0(钳位到 0),255 应该仍接近 255
+    {
+        adj::ExposureParams p;
+        p.exposure = 1.0;
+        // 调 internal LUT 不易(它是匿名 namespace 函数),
+        // 改用整图应用
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(128, 128, 128));
+        adj::applyExposure(img, p);
+        const int r = img.pixelColor(0, 0).red();
+        // 128 在 +1EV 下应明显变亮(>150)
+        QVERIFY2(r > 150, qPrintable(QString("got %1, expected >150").arg(r)));
+        // 也不应超过 255
+        QVERIFY(r <= 255);
+    }
+    // 黑色像素:+1EV 后线性光域是 0*2=0,仍黑(边界检查)
+    {
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(0, 0, 0));
+        adj::ExposureParams p; p.exposure = 1.0;
+        adj::applyExposure(img, p);
+        QCOMPARE(img.pixelColor(0, 0).red(), 0);
+    }
+    // 白色像素:应被钳到 255
+    {
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(255, 255, 255));
+        adj::ExposureParams p; p.exposure = 1.0;
+        adj::applyExposure(img, p);
+        QCOMPARE(img.pixelColor(0, 0).red(), 255);
+    }
+}
+
+void TestDocument::adjExposureGamma()
+{
+    // 上游公式:linear = pow(linear, 1/gamma)
+    //   gamma=2 → 1/gamma=0.5 → 开方 → 0.2150→0.4637 → 字节 179(更亮)
+    //   gamma=0.5 → 1/gamma=2 → 平方 → 0.2150→0.0462 → 字节 55(更暗)
+    {
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(128, 128, 128));
+        adj::ExposureParams p; p.gamma = 2.0;
+        adj::applyExposure(img, p);
+        const int r = img.pixelColor(0, 0).red();
+        QVERIFY2(r > 128, qPrintable(QString("got %1, expected >128 (mid brighter)").arg(r)));
+    }
+    {
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(128, 128, 128));
+        adj::ExposureParams p; p.gamma = 0.5;
+        adj::applyExposure(img, p);
+        const int r = img.pixelColor(0, 0).red();
+        QVERIFY2(r < 128, qPrintable(QString("got %1, expected <128 (mid darker)").arg(r)));
+    }
 }
 
 QTEST_MAIN(TestDocument)

@@ -64,7 +64,8 @@ ctest --test-dir build --output-on-failure
 - [x] CPU 调色算法：Brightness/Contrast + Invert
 - [x] CPU 调色算法：Curves（保形三次 Hermite 插值 LUT）
 - [x] 几何调整：Crop / Resize / Rotate（任意角度）
-- [x] CPU 调色算法：Black & White（6 色域权重 + tint 上色）+ Color Balance（阴影/中间调/高光 CMY 偏移）  ← 当前
+- [x] CPU 调色算法：Black & White（6 色域权重 + tint 上色）+ Color Balance（阴影/中间调/高光 CMY 偏移）
+- [x] CPU 调色算法：Exposure（sRGB↔线性光+EV+offset+gamma LUT，Photo CIE）  ← 当前
 - [ ] GPU 画布与渲染（QRhiRenderer，替换 PainterRenderer）
 - [ ] RAW / 视觉智能（高风险，需先 Spike）
 - [ ] PSD 导出（保存回写）
