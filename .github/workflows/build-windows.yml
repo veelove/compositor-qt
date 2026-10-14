@@ -33,9 +33,11 @@ jobs:
         shell: bash
         run: |
           cd build
-          ./tst_document.exe -o test_output.log
+          ./tst_document.exe -o test_output.log; echo "TEST_EXIT=$?"
+          echo "---- test_output.log ----"
           cat test_output.log
-          ctest --test-dir build --output-on-failure
+          echo "---- end ----"
+          ctest --test-dir build --output-on-failure; echo "CTEST_EXIT=$?"
 
       - name: Package runtime (smoke)
         shell: bash
