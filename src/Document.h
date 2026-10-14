@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AdjustLut.h"
+
 #include <QObject>
 #include <QSize>
 #include <QVector>
@@ -30,6 +32,10 @@ public:
     Layer *activeLayer() const { return m_activeLayer; }
     void setActiveLayer(Layer *layer);
 
+    // 渲染期全局调色 LUT(非破坏性,图层像素不变;空 = 无调色)
+    const adj::AdjustLut &renderLut() const { return m_renderLut; }
+    void setRenderLut(const adj::AdjustLut &lut);
+
 signals:
     void contentChanged();    // 像素/显示变化,画布需重绘
     void structureChanged();  // 图层增删
@@ -39,4 +45,5 @@ private:
     QSize m_size;
     QVector<Layer *> m_layers;
     Layer *m_activeLayer = nullptr;
+    adj::AdjustLut m_renderLut;
 };

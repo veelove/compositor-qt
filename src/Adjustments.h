@@ -151,4 +151,7 @@ struct ExposureParams
 
 void applyExposure(QImage &dest, const ExposureParams &params);
 
+// 生成 Exposure 调色的 256 项 LUT(公共,供 GPU LUT 管线复用)
+QVector<int> buildExposureLut(const ExposureParams &params);
+
 } // namespace adj

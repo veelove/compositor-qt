@@ -60,6 +60,15 @@ void Document::setActiveLayer(Layer *layer)
     emit activeLayerChanged();
 }
 
+void Document::setRenderLut(const adj::AdjustLut &lut)
+{
+    if (m_renderLut.isNull() == lut.isNull()
+        && (m_renderLut.isNull() || m_renderLut.data == lut.data))
+        return;
+    m_renderLut = lut;
+    emit contentChanged();
+}
+
 void Document::setSize(const QSize &size)
 {
     if (m_size == size)

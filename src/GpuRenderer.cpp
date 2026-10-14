@@ -48,14 +48,36 @@ void main() {
 }
 )";
 
+// 调色后处理:对合成结果逐像素查 256x1 LUT(Levels/Curves/Exposure/BC 等)
+// LUT 纹理坐标 s = 通道值/255,Nearest 过滤保证取整精确,与 CPU 查表一致
+constexpr const char *kFragPostSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform sampler2D uLut;
+uniform int uHasLut;
+out vec4 fragColor;
+void main() {
+    vec4 c = texture(uScene, vUV);
+    if (uHasLut == 1) {
+        c.r = texture(uLut, vec2(c.r, 0.5)).r;
+        c.g = texture(uLut, vec2(c.g, 0.5)).g;
+        c.b = texture(uLut, vec2(c.b, 0.5)).b;
+    }
+    fragColor = c;
+}
+)";
+
 } // namespace
 
 struct GpuRenderer::Impl
 {
     std::unique_ptr<QOpenGLContext> ctx;
     std::unique_ptr<QOffscreenSurface> surface;
-    std::unique_ptr<QOpenGLFramebufferObject> fbo;
-    std::unique_ptr<QOpenGLShaderProgram> program;
+    std::unique_ptr<QOpenGLFramebufferObject> fbo;      // 层合成
+    std::unique_ptr<QOpenGLFramebufferObject> fbo2;     // 调色后处理
+    std::unique_ptr<QOpenGLShaderProgram> program;      // 层合成
+    std::unique_ptr<QOpenGLShaderProgram> postProgram;  // 调色 LUT
     QSize lastSize;
     bool ready = false;
 };
@@ -109,6 +131,14 @@ QImage GpuRenderer::render(const Document &document) const
             d->ctx->doneCurrent();
             return PainterRenderer().render(document);
         }
+        d->postProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->postProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->postProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragPostSrc);
+        if (!d->postProgram->link()) {
+            qCDebug(lcGpuRenderer) << "Post shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
         d->ready = true;
     }
 
@@ -116,6 +146,7 @@ QImage GpuRenderer::render(const Document &document) const
     const QSize targetSize = document.size();
     if (d->lastSize != targetSize) {
         d->fbo = std::make_unique<QOpenGLFramebufferObject>(targetSize, QOpenGLFramebufferObject::CombinedDepthStencil);
+        d->fbo2 = std::make_unique<QOpenGLFramebufferObject>(targetSize, QOpenGLFramebufferObject::CombinedDepthStencil);
         d->lastSize = targetSize;
     }
     if (!d->fbo) {
@@ -172,11 +203,52 @@ QImage GpuRenderer::render(const Document &document) const
     d->program->disableAttributeArray(0);
     d->program->disableAttributeArray(1);
     d->program->release();
+
+    const bool hasLut = !document.renderLut().isNull();
+
+    // 3.5) 调色后处理 pass:合成结果 → LUT 查表 → fbo2
+    if (hasLut && d->fbo2) {
+        f->glBindFramebuffer(GL_FRAMEBUFFER, d->fbo2->handle());
+        f->glClearColor(0, 0, 0, 0);
+        f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glDisable(GL_BLEND); // 覆盖式拷贝
+
+        QImage lutImg = document.renderLut().data.convertToFormat(QImage::Format_RGBA8888);
+        QOpenGLTexture lutTex(QOpenGLTexture::Target2D);
+        lutTex.setData(lutImg, QOpenGLTexture::DontGenerateMipMaps);
+        lutTex.setMinificationFilter(QOpenGLTexture::Nearest); // 取整精确,不插值
+        lutTex.setMagnificationFilter(QOpenGLTexture::Nearest);
+
+        d->postProgram->bind();
+        const int locScene  = d->postProgram->uniformLocation("uScene");
+        const int locLut    = d->postProgram->uniformLocation("uLut");
+        const int locHasLut = d->postProgram->uniformLocation("uHasLut");
+        d->postProgram->enableAttributeArray(0);
+        d->postProgram->enableAttributeArray(1);
+        d->postProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+        d->postProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+
+        f->glActiveTexture(GL_TEXTURE0);
+        f->glBindTexture(GL_TEXTURE_2D, d->fbo->texture()); // 合成结果
+        d->postProgram->setUniformValue(locScene, 0);
+        lutTex.bind(1);
+        d->postProgram->setUniformValue(locLut, 1);
+        d->postProgram->setUniformValue(locHasLut, 1);
+        f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        d->postProgram->disableAttributeArray(0);
+        d->postProgram->disableAttributeArray(1);
+        d->postProgram->release();
+        lutTex.release();
+        f->glBindTexture(GL_TEXTURE_2D, 0);
+        f->glEnable(GL_BLEND);
+    }
+
     f->glBindFramebuffer(GL_FRAMEBUFFER, 0);
     d->ctx->doneCurrent();
 
     // 4) Readback(QImage 不能直接给 RGBA,需换格式)
-    QImage result = d->fbo->toImage(true); // true = 翻转 Y
+    QImage result = (hasLut && d->fbo2) ? d->fbo2->toImage(true) : d->fbo->toImage(true);
     if (result.format() == QImage::Format_RGBA8888)
         return result.convertToFormat(QImage::Format_ARGB32);
     return result.convertToFormat(QImage::Format_ARGB32);

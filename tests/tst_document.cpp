@@ -1,9 +1,11 @@
 #include <QtTest>
 
+#include "AdjustLut.h"
 #include "Adjustments.h"
 #include "Document.h"
 #include "Filters.h"
 #include "Geometry.h"
+#include "GpuRenderer.h"
 #include "Layer.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
@@ -59,6 +61,13 @@ private slots:
     void layerOffsetRender();
     void moveLayerCommandUndoRedo();
     void clearRectCommandUndoRedo();
+    void lutLevelsMatchesApply();
+    void lutCurvesMatchesApply();
+    void lutExposureMatchesApply();
+    void lutBcMatchesApply();
+    void lutComposeSemantics();
+    void documentRenderLut();
+    void gpuRendererLutConsistency();
 };
 
 void TestDocument::addRemoveLayer()
@@ -876,6 +885,174 @@ void TestDocument::clearRectCommandUndoRedo()
     QCOMPARE(layer->pixels().pixelColor(0, 0), QColor(Qt::white)); // 恢复
     stack.redo();
     QCOMPARE(layer->pixels().pixelColor(0, 0).alpha(), 0);   // 再清除
+}
+
+namespace {
+// 抽样:对若干典型输入字节,验证 LUT 与原 apply* 一致
+int mapLevelsSample(int v, const adj::LevelsParams &p)
+{
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixel(0, 0, qRgba(v, v, v, 255));
+    QImage ref = img.copy();
+    adj::applyLevels(ref, p);
+    return qRed(ref.pixel(0, 0));
+}
+int mapCurvesSample(int v, const adj::CurvesParams &p)
+{
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixel(0, 0, qRgba(v, v, v, 255));
+    QImage ref = img.copy();
+    adj::applyCurves(ref, p);
+    return qRed(ref.pixel(0, 0));
+}
+int mapExposureSample(int v, const adj::ExposureParams &p)
+{
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixel(0, 0, qRgba(v, v, v, 255));
+    QImage ref = img.copy();
+    adj::applyExposure(ref, p);
+    return qRed(ref.pixel(0, 0));
+}
+int mapBcSample(int v, const adj::BcParams &p)
+{
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixel(0, 0, qRgba(v, v, v, 255));
+    QImage ref = img.copy();
+    adj::applyBrightnessContrast(ref, p);
+    return qRed(ref.pixel(0, 0));
+}
+} // namespace
+
+void TestDocument::lutLevelsMatchesApply()
+{
+    adj::LevelsParams p;
+    p.range.black = 30;
+    p.range.white = 220;
+    p.range.gamma = 1.5;
+    p.rgbRange.outputBlack = 10;
+    p.rgbRange.outputWhite = 245;
+    const adj::AdjustLut lut = adj::lutFromLevels(p);
+    QVERIFY(!lut.isNull());
+    for (int v : {0, 16, 64, 128, 192, 240, 255}) {
+        const uint8_t viaLut = lut.mapR(uint8_t(v));
+        const int viaApply = mapLevelsSample(v, p);
+        QCOMPARE(int(viaLut), viaApply);
+    }
+    // 恒等参数 → 恒等 LUT
+    QVERIFY(adj::lutFromLevels(adj::LevelsParams{}).isNull());
+}
+
+void TestDocument::lutCurvesMatchesApply()
+{
+    adj::CurvesParams p;
+    p.points = { {0, 0}, {64, 96}, {192, 220}, {255, 255} };
+    const adj::AdjustLut lut = adj::lutFromCurves(p);
+    QVERIFY(!lut.isNull());
+    for (int v : {0, 32, 80, 128, 200, 255}) {
+        const uint8_t viaLut = lut.mapR(uint8_t(v));
+        const int viaApply = mapCurvesSample(v, p);
+        QCOMPARE(int(viaLut), viaApply);
+    }
+    // identity 曲线 → 恒等
+    QVERIFY(adj::lutFromCurves(adj::CurvesParams{}).isNull());
+}
+
+void TestDocument::lutExposureMatchesApply()
+{
+    adj::ExposureParams p;
+    p.exposure = 1.5;
+    p.offset = 0.05;
+    p.gamma = 1.2;
+    const adj::AdjustLut lut = adj::lutFromExposure(p);
+    QVERIFY(!lut.isNull());
+    for (int v : {0, 16, 64, 128, 192, 240, 255}) {
+        const uint8_t viaLut = lut.mapR(uint8_t(v));
+        const int viaApply = mapExposureSample(v, p);
+        // 1 步四舍五入差异允许
+        QVERIFY2(qAbs(int(viaLut) - viaApply) <= 1,
+                 qPrintable(QString("v=%1 lut=%2 apply=%3").arg(v).arg(viaLut).arg(viaApply)));
+    }
+}
+
+void TestDocument::lutBcMatchesApply()
+{
+    adj::BcParams p;
+    p.brightness = 20;
+    p.contrast = 30;
+    const adj::AdjustLut lut = adj::lutFromBrightnessContrast(p);
+    QVERIFY(!lut.isNull());
+    for (int v : {0, 32, 80, 128, 200, 255}) {
+        const uint8_t viaLut = lut.mapR(uint8_t(v));
+        const int viaApply = mapBcSample(v, p);
+        QCOMPARE(int(viaLut), viaApply);
+    }
+}
+
+void TestDocument::lutComposeSemantics()
+{
+    // 先 Levels 再 BC = second ∘ first
+    adj::LevelsParams lp;
+    lp.range.black = 30; lp.range.white = 220;
+    adj::BcParams bp; bp.brightness = 20; bp.contrast = 30;
+    const auto composed = adj::lutCompose(adj::lutFromLevels(lp),
+                                          adj::lutFromBrightnessContrast(bp));
+    // 任一为恒等时,返回另一张
+    QVERIFY(adj::lutCompose(adj::identityLut(), adj::lutFromBrightnessContrast(bp)).isNull() == false);
+    QVERIFY(adj::lutCompose(adj::lutFromBrightnessContrast(bp), adj::identityLut()).isNull() == false);
+    // 抽样验证等价性
+    for (int v : {0, 64, 128, 200, 255}) {
+        const int r1 = mapBcSample(mapLevelsSample(v, lp), bp);
+        const int r2 = composed.mapR(uint8_t(v));
+        QCOMPARE(r2, r1);
+    }
+}
+
+void TestDocument::documentRenderLut()
+{
+    // Document 持有 LUT,PainterRenderer 应用
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), QColor(60, 80, 200));
+    doc.addLayer(layer);
+
+    PainterRenderer p;
+    QImage baseline = p.render(doc);
+    QCOMPARE(baseline.pixelColor(0, 0).red(), 60);
+
+    adj::ExposureParams ep; ep.exposure = 1.0;
+    doc.setRenderLut(adj::lutFromExposure(ep));
+    const QImage tuned = p.render(doc);
+    QVERIFY(tuned.pixelColor(0, 0).red() != 60); // 1 EV 提亮
+
+    // 切回恒等
+    doc.setRenderLut(adj::identityLut());
+    const QImage back = p.render(doc);
+    QCOMPARE(back.pixelColor(0, 0).red(), 60);
+}
+
+void TestDocument::gpuRendererLutConsistency()
+{
+    // GpuRenderer 在 headless / 无 GL 环境下会 fallback 到 PainterRenderer,
+    // 所以"无 GL"时实际仍由 CPU 路径渲染 —— 始终与 PainterRenderer 输出一致。
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(30, 60, 120, 200));
+    doc.addLayer(layer);
+
+    adj::ExposureParams ep; ep.exposure = 0.8; ep.gamma = 1.1;
+    const adj::AdjustLut lut = adj::lutFromExposure(ep);
+    doc.setRenderLut(lut);
+
+    GpuRenderer g;
+    PainterRenderer p;
+    const QImage gImg = g.render(doc);
+    const QImage pImg = p.render(doc);
+    QCOMPARE(gImg.size(), pImg.size());
+    // 任何 1 个像素出现差异说明 GPU/CPU 路径不一致
+    bool differ = false;
+    for (int y = 0; y < 8 && !differ; ++y)
+        for (int x = 0; x < 8 && !differ; ++x)
+            if (gImg.pixel(x, y) != pImg.pixel(x, y))
+                differ = true;
+    QVERIFY(!differ);
 }
 
 QTEST_MAIN(TestDocument)

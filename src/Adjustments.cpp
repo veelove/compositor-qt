@@ -506,6 +506,8 @@ inline double linearToSrgb(double v)
     return v <= 0.0031308 ? v * 12.92 : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055;
 }
 
+} // namespace
+
 // 生成 Exposure 调色的 256 项 LUT(直译自上游 ExposureSettings.table)
 QVector<int> buildExposureLut(const ExposureParams &p)
 {
@@ -527,8 +529,6 @@ QVector<int> buildExposureLut(const ExposureParams &p)
     }
     return lut;
 }
-
-} // namespace
 
 void applyExposure(QImage &dest, const ExposureParams &params)
 {
