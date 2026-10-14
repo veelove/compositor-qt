@@ -584,7 +584,6 @@ void MainWindow::createActions()
     connect(m_adjInvertAction, &QAction::triggered, this, &MainWindow::adjInvert);
     m_adjResetAction = new QAction(tr("&Reset Adjustments"), this);
     connect(m_adjResetAction, &QAction::triggered, this, &MainWindow::adjResetLut);
-}
 
     m_adjGaussianLiveAction = new QAction(tr("Gaussian Blur (GPU)..."), this);
     connect(m_adjGaussianLiveAction, &QAction::triggered, this, &MainWindow::adjGaussianBlurLive);
