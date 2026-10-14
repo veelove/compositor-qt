@@ -44,4 +44,6 @@ install(TARGETS CompositorQt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 enable_testing()
 qt_add_executable(tst_document tests/tst_document.cpp)
 target_link_libraries(tst_document PRIVATE CompositorCore Qt6::Test)
+# 测试程序必须是 console subsystem(默认),确保 stdout/stderr 在 CI 可见
+# CompositorQt 应用上方已设为 WIN32_EXECUTABLE=TRUE(tst_document 不设)
 add_test(NAME tst_document COMMAND tst_document)

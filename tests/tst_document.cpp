@@ -81,5 +81,5 @@ void TestDocument::rendererComposites()
     QVERIFY(out.pixelColor(4, 4).red() > 0);
 }
 
-QTEST_GUILESS_MAIN(TestDocument)
+QTEST_MAIN(TestDocument)
 #include "tst_document.moc"
