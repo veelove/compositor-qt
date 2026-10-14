@@ -39,8 +39,9 @@ jobs:
           "$QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw tst_document.exe
           echo "windeployqt exit=$?"
           # Windows headless CI:必须用 offscreen 平台插件,否则 GUI subsystem 启动失败
+          # QTEST_GUILESS_MAIN 不接受 Qt 平台 CLI 参数,只能通过环境变量
           echo "=== run tst_document (offscreen) ==="
-          ./tst_document.exe -platform offscreen 2>&1
+          QT_QPA_PLATFORM=offscreen QT_LOGGING_RULES="qt.qpa.*=false" ./tst_document.exe 2>&1
           TEST_EXIT=$?
           echo "=== end (exit $TEST_EXIT) ==="
           exit $TEST_EXIT
