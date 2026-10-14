@@ -182,4 +182,52 @@ void applyHsv(QImage &dest, const HsvParams &p)
     }
 }
 
+// ============================== Brightness/Contrast ==============================
+void applyBrightnessContrast(QImage &dest, const BcParams &p)
+{
+    if (dest.isNull() || dest.format() != QImage::Format_ARGB32)
+        return;
+    if (p.brightness == 0 && p.contrast == 0)
+        return;
+    // brightness: -100..+100 → 字节偏移 -255..+255
+    const int b = (p.brightness * 255 + 50) / 100; // 四舍五入
+    // contrast: -100..+100 → 倍率 0..2
+    const double c = 1.0 + p.contrast / 100.0;
+
+    for (int y = 0; y < dest.height(); ++y) {
+        for (int x = 0; x < dest.width(); ++x) {
+            const QRgb px = dest.pixel(x, y);
+            const int a  = qAlpha(px);
+            int r = qRed(px);
+            int g = qGreen(px);
+            int bch = qBlue(px);
+            // 先 brightness(线性加),再 contrast(以 128 为中心拉伸)
+            r = qBound(0, r + b, 255);
+            g = qBound(0, g + b, 255);
+            bch = qBound(0, bch + b, 255);
+            r  = qBound(0, int(128 + (r    - 128) * c), 255);
+            g  = qBound(0, int(128 + (g    - 128) * c), 255);
+            bch = qBound(0, int(128 + (bch  - 128) * c), 255);
+            dest.setPixel(x, y, qRgba(r, g, bch, a));
+        }
+    }
+}
+
+// ============================== Invert ==============================
+void applyInvert(QImage &dest)
+{
+    if (dest.isNull() || dest.format() != QImage::Format_ARGB32)
+        return;
+    for (int y = 0; y < dest.height(); ++y) {
+        for (int x = 0; x < dest.width(); ++x) {
+            const QRgb px = dest.pixel(x, y);
+            const int a  = qAlpha(px);
+            const int r  = 255 - qRed(px);
+            const int g  = 255 - qGreen(px);
+            const int b  = 255 - qBlue(px);
+            dest.setPixel(x, y, qRgba(r, g, b, a));
+        }
+    }
+}
+
 } // namespace adj

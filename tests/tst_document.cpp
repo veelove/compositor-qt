@@ -25,6 +25,8 @@ private slots:
     void adjLevelsGamma();
     void adjHsvSaturate();
     void adjHsvHueShift();
+    void adjBrightnessContrast();
+    void adjInvert();
 };
 
 void TestDocument::addRemoveLayer()
@@ -250,6 +252,66 @@ void TestDocument::adjHsvHueShift()
     adj::applyHsv(img, p);
     const QColor out = img.pixelColor(0, 0);
     QVERIFY(out.green() > 200);
+}
+
+void TestDocument::adjBrightnessContrast()
+{
+    // brightness=+100:每像素 +255 → 全部 255(全白)
+    {
+        QImage img = makeGray4();
+        adj::BcParams p;
+        p.brightness = 100;
+        adj::applyBrightnessContrast(img, p);
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                QCOMPARE(img.pixelColor(x, y).red(), 255);
+    }
+    // contrast=-100:全压到 128
+    {
+        QImage img = makeGray4();
+        adj::BcParams p;
+        p.contrast = -100;
+        adj::applyBrightnessContrast(img, p);
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                QCOMPARE(img.pixelColor(x, y).red(), 128);
+    }
+    // contrast=+100:0→0, 128→128(不动), 255→255,85→42(向下远离 128)
+    {
+        QImage img = makeGray4();
+        adj::BcParams p;
+        p.contrast = 100;
+        adj::applyBrightnessContrast(img, p);
+        QCOMPARE(img.pixelColor(0, 0).red(), 0);     // 0
+        QCOMPARE(img.pixelColor(1, 1).red(), 255);   // 255
+        // (1,0)=85: 128 + (85-128)*2  = 42
+        QCOMPARE(img.pixelColor(1, 0).red(), 42);
+        // (0,1)=170: 128 + (170-128)*2 = 212
+        QCOMPARE(img.pixelColor(0, 1).red(), 212);
+    }
+    // 默认 0,0 不动
+    {
+        QImage img = makeGray4();
+        QImage before = img;
+        adj::BcParams p;
+        adj::applyBrightnessContrast(img, p);
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                QCOMPARE(img.pixel(x, y), before.pixel(x, y));
+    }
+}
+
+void TestDocument::adjInvert()
+{
+    QImage img = makeGray4();
+    adj::applyInvert(img);
+    QCOMPARE(img.pixelColor(0, 0).red(), 255);   // 0 → 255
+    QCOMPARE(img.pixelColor(1, 1).red(), 0);     // 255 → 0
+    QCOMPARE(img.pixelColor(0, 1).red(), 85);    // 170 → 85
+    QCOMPARE(img.pixelColor(1, 0).red(), 170);   // 85 → 170
+
+    // Alpha 保持:完全不透明图像的 alpha 不变
+    QCOMPARE(img.pixelColor(0, 0).alpha(), 255);
 }
 
 QTEST_MAIN(TestDocument)

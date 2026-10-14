@@ -49,4 +49,21 @@ struct HsvParams
 // 对整张图像应用 HSV 调整(就地修改 dest)
 void applyHsv(QImage &dest, const HsvParams &params);
 
+// ============================== Brightness/Contrast ==============================
+// Photoshop 经典实现:
+//   brightness ∈ [-100, +100]:线性偏移(Photoshop 早期是减法,现代实现是直接加)
+//   contrast   ∈ [-100, +100]:以 128 为中心线性拉伸
+//     result = 128 + (v - 128) * (1 + contrast/100)
+struct BcParams
+{
+    int brightness = 0;
+    int contrast   = 0;
+};
+
+void applyBrightnessContrast(QImage &dest, const BcParams &params);
+
+// ============================== Invert ==============================
+// 简单反相:R = 255 - R, G = 255 - G, B = 255 - B,alpha 保持
+void applyInvert(QImage &dest);
+
 } // namespace adj
