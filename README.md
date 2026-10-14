@@ -69,4 +69,5 @@ ctest --test-dir build --output-on-failure
 - [x] GPU 渲染器：GpuRenderer（OpenGL FBO + 简单 fragment shader + FBO readback），headless 自动 fallback 到 PainterRenderer
 - [x] RAW / 视觉智能 Spike：RawProvider.h（LibRaw 选型分析）+ VisionProvider.h（ONNX/OpenCV 选型分析）+ 扩展名识别 stub + StubVisionProvider
 - [x] PSD 导出（扁平化 RGB/ARGB + PackBits 写盘 + round-trip 验证）
-- [x] 文件 IO 打通：File→Open（PSD/PNG/JPEG）+ Save（PSD/PNG/JPEG）+ 标题栏路径  ← 当前
+- [x] 文件 IO 打通：File→Open（PSD/PNG/JPEG）+ Save（PSD/PNG/JPEG）+ 标题栏路径
+- [x] 图层树 UI：右侧面板（增/删/上移/下移/显隐/改名/选中），与撤销栈联动  ← 当前

@@ -3,11 +3,13 @@
 #include "CanvasView.h"
 #include "Document.h"
 #include "Layer.h"
+#include "LayersPanel.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
 #include "PsdWriter.h"
 
 #include <QAction>
+#include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -33,6 +35,7 @@ MainWindow::MainWindow(QWidget *parent)
     createActions();
     createMenus();
     createStatusBar();
+    createDockPanels();
 
     connect(m_canvas, &CanvasView::zoomChanged, this, [this](double zoom) {
         m_zoomLabel->setText(tr("%1%").arg(qRound(zoom * 100)));
@@ -127,6 +130,17 @@ void MainWindow::createStatusBar()
     m_zoomLabel->setText(tr("100%"));
 }
 
+void MainWindow::createDockPanels()
+{
+    m_layersPanel = new LayersPanel(this);
+    m_layersPanel->setUndoStack(&m_undoStack);
+    auto *dock = new QDockWidget(tr("Layers"), this);
+    dock->setObjectName(QStringLiteral("LayersDock"));
+    dock->setWidget(m_layersPanel);
+    dock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, dock);
+}
+
 void MainWindow::newDocument()
 {
     clearDocument();
@@ -135,6 +149,7 @@ void MainWindow::newDocument()
     m_document->addLayer(new Layer(tr("Background"), m_document->size(), Qt::white));
     m_document->setActiveLayer(m_document->layerAt(0));
     m_canvas->setDocument(m_document);
+    m_layersPanel->setDocument(m_document);
     setWindowTitle(tr("Compositor Qt - Untitled"));
     statusBar()->showMessage(tr("新建文档"), 3000);
 }
@@ -194,6 +209,7 @@ void MainWindow::openDocument()
     m_document->addLayer(layer);
     m_document->setActiveLayer(layer);
     m_canvas->setDocument(m_document);
+    m_layersPanel->setDocument(m_document);
     m_currentPath = path;
     setWindowTitle(tr("Compositor Qt - %1").arg(QFileInfo(path).fileName()));
     statusBar()->showMessage(tr("已打开 %1").arg(path), 3000);
@@ -248,6 +264,7 @@ void MainWindow::clearDocument()
 {
     m_undoStack.clear();
     m_canvas->setDocument(nullptr);
+    m_layersPanel->setDocument(nullptr);
     delete m_document;
     m_document = nullptr;
     setWindowTitle(tr("Compositor Qt"));

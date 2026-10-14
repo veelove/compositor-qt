@@ -5,6 +5,7 @@
 
 class CanvasView;
 class Document;
+class LayersPanel;
 class QLabel;
 
 class MainWindow : public QMainWindow
@@ -25,8 +26,10 @@ private:
     void openDocument();
     void saveDocument();
     void clearDocument();
+    void createDockPanels();
 
     CanvasView *m_canvas = nullptr;
+    LayersPanel *m_layersPanel = nullptr;
     Document *m_document = nullptr;
     QUndoStack m_undoStack;
     QLabel *m_zoomLabel = nullptr;
