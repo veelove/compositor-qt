@@ -2,6 +2,7 @@
 
 #include "AdjustLut.h"
 #include "Document.h"
+#include "Filters.h"
 #include "Layer.h"
 
 #include <QPainter>
@@ -21,6 +22,13 @@ QImage PainterRenderer::render(const Document &document) const
         p.setOpacity(1.0);
     }
     p.end();
+
+    // 渲染期高斯模糊(CPU fallback,GpuRenderer 也有等价 GPU path)
+    if (document.gaussianBlurRadius() > 0.0) {
+        QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+        flat = filt::gaussianBlur(flat, document.gaussianBlurRadius());
+        canvas = flat;
+    }
 
     // 渲染期全局调色(非破坏性后处理)
     if (!document.renderLut().isNull()) {

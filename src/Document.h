@@ -37,6 +37,10 @@ public:
     const adj::AdjustLut &renderLut() const { return m_renderLut; }
     void setRenderLut(const adj::AdjustLut &lut);
 
+    // 渲染期高斯模糊(非破坏性,图层像素不变;radius<=0 不应用)
+    double gaussianBlurRadius() const { return m_gaussianBlurRadius; }
+    void setGaussianBlurRadius(double radius);
+
     // 每个 Document 独立的撤销栈
     QUndoStack *undoStack() { return &m_undoStack; }
 
@@ -50,5 +54,6 @@ private:
     QVector<Layer *> m_layers;
     Layer *m_activeLayer = nullptr;
     adj::AdjustLut m_renderLut;
+    double m_gaussianBlurRadius = 0.0;
     QUndoStack m_undoStack;
 };

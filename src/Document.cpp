@@ -1,6 +1,8 @@
 #include "Document.h"
 #include "Layer.h"
 
+#include <QtGlobal>
+
 Document::Document(const QSize &size, QObject *parent)
     : QObject(parent)
     , m_size(size)
@@ -66,6 +68,14 @@ void Document::setRenderLut(const adj::AdjustLut &lut)
         && (m_renderLut.isNull() || m_renderLut.data == lut.data))
         return;
     m_renderLut = lut;
+    emit contentChanged();
+}
+
+void Document::setGaussianBlurRadius(double radius)
+{
+    if (qFuzzyCompare(m_gaussianBlurRadius, radius))
+        return;
+    m_gaussianBlurRadius = radius;
     emit contentChanged();
 }
 

@@ -69,6 +69,20 @@ private:
     adj::AdjustLut m_after;
 };
 
+// 高斯模糊(非破坏性,记录 radius before/after)
+class GaussianBlurCommand : public QUndoCommand
+{
+public:
+    GaussianBlurCommand(Document *document, double before, double after, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    double m_before;
+    double m_after;
+};
+
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。
 class AddLayerCommand : public QUndoCommand
 {

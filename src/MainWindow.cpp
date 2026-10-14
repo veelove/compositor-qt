@@ -22,6 +22,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
+#include <QInputDialog>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenu>
@@ -484,6 +485,25 @@ void MainWindow::adjResetLut()
     statusBar()->showMessage(tr("已重置调色"), 3000);
 }
 
+void MainWindow::adjGaussianBlurLive()
+{
+    // 非破坏性高斯模糊:弹半径对话框 → 走 GaussianBlurCommand(GpuRenderer/PainterRenderer 都用 radius 字段)
+    Document *doc = currentDocument();
+    if (!doc) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    const int current = int(std::ceil(doc->gaussianBlurRadius()));
+    bool ok = false;
+    const int radius = QInputDialog::getInt(this, tr("高斯模糊(GPU 预览)"),
+                                           tr("半径(像素)"), current, 0, 64, 1, &ok);
+    if (!ok)
+        return;
+    const double r = double(radius);
+    doc->undoStack()->push(new GaussianBlurCommand(doc, doc->gaussianBlurRadius(), r));
+    statusBar()->showMessage(tr("已应用高斯模糊(GPU 预览)"), 3000);
+}
+
 // ---------------------------------------------------------------------------
 // UI 构造
 // ---------------------------------------------------------------------------
@@ -566,6 +586,10 @@ void MainWindow::createActions()
     connect(m_adjResetAction, &QAction::triggered, this, &MainWindow::adjResetLut);
 }
 
+    m_adjGaussianLiveAction = new QAction(tr("Gaussian Blur (GPU)..."), this);
+    connect(m_adjGaussianLiveAction, &QAction::triggered, this, &MainWindow::adjGaussianBlurLive);
+}
+
 void MainWindow::createMenus()
 {
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
@@ -604,6 +628,7 @@ void MainWindow::createMenus()
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjInvertAction);
     imageMenu->addSeparator();
+    imageMenu->addAction(m_adjGaussianLiveAction);
     imageMenu->addAction(m_adjResetAction);
 }
 

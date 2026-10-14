@@ -71,6 +71,9 @@ private slots:
     void adjLutCommandUndoRedo();
     void documentOwnsUndoStack();
     void perDocumentUndoIsolation();
+    void documentGaussianBlurRadius();
+    void gaussianBlurCommandUndoRedo();
+    void gpuGaussianBlurConsistency();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1117,6 +1120,57 @@ void TestDocument::perDocumentUndoIsolation()
     d1.undoStack()->undo();
     QCOMPARE(d1.layerCount(), 1);
     QCOMPARE(d2.layerCount(), 1);
+}
+
+void TestDocument::documentGaussianBlurRadius()
+{
+    // Document 持有非破坏性 blur radius,默认 0
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), QColor(60, 80, 200));
+    doc.addLayer(layer);
+    QCOMPARE(doc.gaussianBlurRadius(), 0.0);
+
+    doc.setGaussianBlurRadius(3.5);
+    QCOMPARE(doc.gaussianBlurRadius(), 3.5);
+    // 重复设置不重发 contentChanged
+    doc.setGaussianBlurRadius(3.5);
+    // 图层像素不变(非破坏性)
+    QCOMPARE(layer->pixels().pixelColor(0, 0), QColor(60, 80, 200));
+}
+
+void TestDocument::gaussianBlurCommandUndoRedo()
+{
+    Document doc(QSize(4, 4));
+    doc.setGaussianBlurRadius(0.0);
+    QUndoStack stack;
+    stack.push(new GaussianBlurCommand(&doc, 0.0, 5.0));
+    QCOMPARE(doc.gaussianBlurRadius(), 5.0);
+    stack.undo();
+    QCOMPARE(doc.gaussianBlurRadius(), 0.0);
+    stack.redo();
+    QCOMPARE(doc.gaussianBlurRadius(), 5.0);
+}
+
+void TestDocument::gpuGaussianBlurConsistency()
+{
+    // GpuRenderer 在 headless 下 fallback 到 PainterRenderer,PainterRenderer
+    // 现在也走 filt::gaussianBlur(与 GPU shader 等价),所以 blur 输出必一致
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(80, 120, 200, 255));
+    doc.addLayer(layer);
+    doc.setGaussianBlurRadius(3.0);
+
+    GpuRenderer g;
+    PainterRenderer p;
+    const QImage gImg = g.render(doc);
+    const QImage pImg = p.render(doc);
+    QCOMPARE(gImg.size(), pImg.size());
+    bool differ = false;
+    for (int y = 0; y < 8 && !differ; ++y)
+        for (int x = 0; x < 8 && !differ; ++x)
+            if (gImg.pixel(x, y) != pImg.pixel(x, y))
+                differ = true;
+    QVERIFY(!differ);
 }
 
 QTEST_MAIN(TestDocument)

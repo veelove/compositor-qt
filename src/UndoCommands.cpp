@@ -126,6 +126,28 @@ void AdjustLutCommand::redo()
 }
 
 // ---------------------------------------------------------------------------
+// GaussianBlurCommand
+// ---------------------------------------------------------------------------
+GaussianBlurCommand::GaussianBlurCommand(Document *document, double before, double after,
+                                         QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Gaussian Blur"), parent)
+    , m_document(document)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void GaussianBlurCommand::undo()
+{
+    m_document->setGaussianBlurRadius(m_before);
+}
+
+void GaussianBlurCommand::redo()
+{
+    m_document->setGaussianBlurRadius(m_after);
+}
+
+// ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
 AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QUndoCommand *parent)
