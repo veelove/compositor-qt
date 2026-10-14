@@ -164,7 +164,7 @@ QImage GpuRenderer::render(const Document &document) const
         tex.setMagnificationFilter(QOpenGLTexture::Linear);
         tex.bind(0);
         d->program->setUniformValue(locTex, 0);
-        d->program->setUniformValue(locOpacity, layer->opacity());
+        d->program->setUniformValue(locOpacity, static_cast<float>(layer->opacity()));
         f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         tex.release();
     }
