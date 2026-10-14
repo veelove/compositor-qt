@@ -26,7 +26,7 @@ qt_add_library(CompositorCore STATIC
     src/Geometry.h src/Geometry.cpp
 )
 target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui OpenGL::GL)
+target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui Qt6::OpenGL)
 
 # ---- 应用 ----
 qt_add_executable(CompositorQt
