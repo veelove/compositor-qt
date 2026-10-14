@@ -6,7 +6,9 @@
 #include "Layer.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
+#include "RawProvider.h"
 #include "UndoCommands.h"
+#include "VisionProvider.h"
 
 #include <QPainter>
 #include <QUndoStack>
@@ -42,6 +44,8 @@ private slots:
     void adjExposureIdentity();
     void adjExposurePlus1EV();
     void adjExposureGamma();
+    void spikeRawExtensions();
+    void spikeVisionStub();
 };
 
 void TestDocument::addRemoveLayer()
@@ -645,6 +649,34 @@ void TestDocument::adjExposureGamma()
         const int r = img.pixelColor(0, 0).red();
         QVERIFY2(r < 128, qPrintable(QString("got %1, expected <128 (mid darker)").arg(r)));
     }
+}
+
+void TestDocument::spikeRawExtensions()
+{
+    // 主流相机 RAW 扩展名必须被识别(只测接口 + 扩展名表,实际解码由 stub 报"未实现")
+    QVERIFY(RawDecoder::isRawFile("photo.dng"));
+    QVERIFY(RawDecoder::isRawFile("photo.CR2"));
+    QVERIFY(RawDecoder::isRawFile("photo.cr3"));
+    QVERIFY(RawDecoder::isRawFile("photo.nef"));
+    QVERIFY(RawDecoder::isRawFile("photo.arw"));
+    QVERIFY(RawDecoder::isRawFile("photo.RAF"));   // 大小写不敏感
+    // 非 RAW 扩展名必须拒绝
+    QVERIFY(!RawDecoder::isRawFile("photo.jpg"));
+    QVERIFY(!RawDecoder::isRawFile("photo.png"));
+    QVERIFY(!RawDecoder::isRawFile("photo"));
+    QVERIFY(!RawDecoder::isRawFile(".hidden"));
+}
+
+void TestDocument::spikeVisionStub()
+{
+    // 验证 stub 给出清晰错误(便于应用层 fallback)
+    StubVisionProvider stub;
+    QImage img(4, 4, QImage::Format_ARGB32);
+    QImage mask;
+    QString err;
+    QVERIFY(!stub.selectObject(img, QPoint(2, 2), mask, &err));
+    QVERIFY(!err.isEmpty());
+    QVERIFY(err.contains(QStringLiteral("StubVisionProvider")));
 }
 
 QTEST_MAIN(TestDocument)

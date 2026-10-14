@@ -24,6 +24,8 @@ qt_add_library(CompositorCore STATIC
     src/PsdReader.h src/PsdReader.cpp
     src/Adjustments.h src/Adjustments.cpp
     src/Geometry.h src/Geometry.cpp
+    src/RawProvider.h src/RawProvider.cpp
+    src/VisionProvider.h
 )
 target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui Qt6::OpenGL)
