@@ -5,6 +5,21 @@
 
 #include <QPainter>
 
+namespace {
+
+// 命令在两种状态下都要安全地"释放"自己持有的图层:
+//   1) 图层已被文档接管(redo 后)→ 文档通过父对象负责析构
+//   2) 图层被命令临时持有(undo 后)→ 命令的析构函数 delete 掉
+// 用一个辅助函数统一处理,避免 QObject 父子关系(命令是 QUndoCommand,不是 QObject)
+template <typename LayerT>
+void releaseOrphaned(LayerT *layer, Document *doc)
+{
+    if (layer && doc->indexOf(layer) < 0)
+        delete layer;
+}
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
@@ -14,21 +29,19 @@ AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QU
     , m_layer(layer)
     , m_index(index)
 {
-    // 命令先持有图层;redo 后交给文档
-    m_layer->setParent(this);
 }
 
 AddLayerCommand::~AddLayerCommand()
 {
-    // 仅当图层不在文档中(处于 undo 状态)时由命令负责销毁
-    if (m_layer && m_layer->parent() == this)
-        delete m_layer;
+    if (m_layer)
+        releaseOrphaned(m_layer, m_document);
 }
 
 void AddLayerCommand::undo()
 {
+    // 让文档"放过"图层所有权:取出后 detach 父子
     m_document->removeLayer(m_layer);
-    m_layer->setParent(this);
+    m_layer->setParent(nullptr);
 }
 
 void AddLayerCommand::redo()
@@ -50,8 +63,8 @@ RemoveLayerCommand::RemoveLayerCommand(Document *document, int index, QUndoComma
 
 RemoveLayerCommand::~RemoveLayerCommand()
 {
-    if (m_layer && m_layer->parent() == this)
-        delete m_layer;
+    if (m_layer)
+        releaseOrphaned(m_layer, m_document);
 }
 
 void RemoveLayerCommand::undo()
@@ -63,7 +76,7 @@ void RemoveLayerCommand::undo()
 void RemoveLayerCommand::redo()
 {
     m_document->removeLayer(m_layer);
-    m_layer->setParent(this);
+    m_layer->setParent(nullptr);
 }
 
 // ---------------------------------------------------------------------------
