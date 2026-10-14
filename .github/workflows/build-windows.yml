@@ -33,8 +33,9 @@ jobs:
         shell: bash
         run: |
           cd build
+          echo "=== run tst_document ==="
           ./tst_document.exe
-          echo "TEST_EXIT=$?"
+          echo "=== end (exit $?) ==="
 
       - name: Package runtime (smoke)
         shell: bash
