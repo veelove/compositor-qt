@@ -70,7 +70,7 @@ private:
 } // namespace
 
 // ---------------------------------------------------------------------------
-std::optional<LevelsParams> promptLevels(QWidget *parent)
+std::optional<adj::LevelsParams> promptLevels(QWidget *parent)
 {
     ParamDialog d(QObject::tr("色阶"), parent);
     auto *black = d.addInt(QObject::tr("黑场"), 0, 254, 0);
@@ -82,17 +82,17 @@ std::optional<LevelsParams> promptLevels(QWidget *parent)
                                 { QObject::tr("RGB"), QObject::tr("红"), QObject::tr("绿"), QObject::tr("蓝") }, 0);
     if (d.exec() != QDialog::Accepted)
         return std::nullopt;
-    LevelsParams p;
+    adj::LevelsParams p;
     p.range.black      = black->value();
     p.range.white      = white->value();
     p.range.gamma      = gamma->value();
     p.range.outputBlack = outBlack->value();
     p.range.outputWhite = outWhite->value();
-    p.channel = static_cast<LevelsParams::Channel>(channel->currentIndex());
+    p.channel = static_cast<adj::LevelsParams::Channel>(channel->currentIndex());
     return p;
 }
 
-std::optional<HsvParams> promptHueSaturation(QWidget *parent)
+std::optional<adj::HsvParams> promptHueSaturation(QWidget *parent)
 {
     ParamDialog d(QObject::tr("色相/饱和度"), parent);
     auto *hue = d.addInt(QObject::tr("色相"), -180, 180, 0);
@@ -101,7 +101,7 @@ std::optional<HsvParams> promptHueSaturation(QWidget *parent)
     auto *colorize = d.addBool(QObject::tr("上色(纯色化)"), false);
     if (d.exec() != QDialog::Accepted)
         return std::nullopt;
-    HsvParams p;
+    adj::HsvParams p;
     p.hue = hue->value();
     p.saturation = sat->value();
     p.lightness = light->value();
@@ -109,17 +109,17 @@ std::optional<HsvParams> promptHueSaturation(QWidget *parent)
     return p;
 }
 
-std::optional<BcParams> promptBrightnessContrast(QWidget *parent)
+std::optional<adj::BcParams> promptBrightnessContrast(QWidget *parent)
 {
     ParamDialog d(QObject::tr("亮度/对比度"), parent);
     auto *b = d.addInt(QObject::tr("亮度"), -100, 100, 0);
     auto *c = d.addInt(QObject::tr("对比度"), -100, 100, 0);
     if (d.exec() != QDialog::Accepted)
         return std::nullopt;
-    return BcParams{ b->value(), c->value() };
+    return adj::BcParams{ b->value(), c->value() };
 }
 
-std::optional<ExposureParams> promptExposure(QWidget *parent)
+std::optional<adj::ExposureParams> promptExposure(QWidget *parent)
 {
     ParamDialog d(QObject::tr("曝光"), parent);
     auto *ev = d.addDouble(QObject::tr("曝光(EV)"), -20.0, 20.0, 0.0, 2);
@@ -127,10 +127,10 @@ std::optional<ExposureParams> promptExposure(QWidget *parent)
     auto *gamma = d.addDouble(QObject::tr("伽马"), 0.01, 9.99, 1.0, 2);
     if (d.exec() != QDialog::Accepted)
         return std::nullopt;
-    return ExposureParams{ ev->value(), offset->value(), gamma->value() };
+    return adj::ExposureParams{ ev->value(), offset->value(), gamma->value() };
 }
 
-std::optional<CurvesParams> promptCurves(QWidget *parent)
+std::optional<adj::CurvesParams> promptCurves(QWidget *parent)
 {
     // MVP:提供 4 个内置样条:恒等/提亮/压暗/高反差,避免用户手绘复杂交互
     ParamDialog d(QObject::tr("曲线"), parent);
@@ -142,7 +142,7 @@ std::optional<CurvesParams> promptCurves(QWidget *parent)
                                0);
     if (d.exec() != QDialog::Accepted)
         return std::nullopt;
-    CurvesParams p;
+    adj::CurvesParams p;
     switch (preset->currentIndex()) {
     case 1: // 提亮中调:中段抬高
         p.points = { {0, 0}, {64, 90}, {128, 170}, {192, 230}, {255, 255} };

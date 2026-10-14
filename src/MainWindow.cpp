@@ -502,7 +502,7 @@ void MainWindow::adjHueSaturation()
     adj::applyHsv(after, *p);
     if (after == before)
         return;
-    m_undoStack->push(new FilterCommand(layer, before, after, tr("Hue/Saturation")));
+    m_undoStack.push(new FilterCommand(layer, before, after, tr("Hue/Saturation")));
     statusBar()->showMessage(tr("已应用 Hue/Saturation"), 3000);
 }
 
@@ -518,7 +518,7 @@ void MainWindow::adjInvert()
     adj::applyInvert(after);
     if (after == before)
         return;
-    m_undoStack->push(new FilterCommand(layer, before, after, tr("Invert")));
+    m_undoStack.push(new FilterCommand(layer, before, after, tr("Invert")));
     statusBar()->showMessage(tr("已应用 Invert"), 3000);
 }
 
@@ -528,7 +528,7 @@ void MainWindow::adjResetLut()
         return;
     if (m_document->renderLut().isNull())
         return; // 没有调色,无需操作
-    m_undoStack->push(new AdjustLutCommand(m_document, m_document->renderLut(),
+    m_undoStack.push(new AdjustLutCommand(m_document, m_document->renderLut(),
                                           adj::identityLut(), tr("Reset Adjustments")));
     statusBar()->showMessage(tr("已重置调色"), 3000);
 }
