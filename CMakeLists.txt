@@ -9,7 +9,7 @@ project(CompositorQt
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Test OpenGL)
 
 qt_standard_project_setup()
 
@@ -19,13 +19,14 @@ qt_add_library(CompositorCore STATIC
     src/Document.h src/Document.cpp
     src/Renderer.h
     src/PainterRenderer.h src/PainterRenderer.cpp
+    src/GpuRenderer.h src/GpuRenderer.cpp
     src/UndoCommands.h src/UndoCommands.cpp
     src/PsdReader.h src/PsdReader.cpp
     src/Adjustments.h src/Adjustments.cpp
     src/Geometry.h src/Geometry.cpp
 )
 target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(CompositorCore PUBLIC Qt6::Widgets)
+target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui OpenGL::GL)
 
 # ---- 应用 ----
 qt_add_executable(CompositorQt
