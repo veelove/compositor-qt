@@ -31,7 +31,11 @@ jobs:
 
       - name: Test
         shell: bash
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          cd build
+          ./tst_document.exe -o test_output.log
+          cat test_output.log
+          ctest --test-dir build --output-on-failure
 
       - name: Package runtime (smoke)
         shell: bash
