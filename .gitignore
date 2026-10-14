@@ -1,0 +1,9 @@
+build/
+build-*/
+.cache/
+CMakeUserPresets.json
+*.user
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
