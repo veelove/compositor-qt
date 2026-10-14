@@ -167,7 +167,7 @@ std::optional<LutApplyResult> promptAndBuildLevels(QWidget *parent)
     const auto p = promptLevels(parent);
     if (!p)
         return std::nullopt;
-    AdjustLut lut = lutFromLevels(*p);
+    adj::AdjustLut lut = adj::lutFromLevels(*p);
     if (lut.isNull())
         return std::nullopt;
     return LutApplyResult{ lut, QObject::tr("Levels") };
@@ -178,7 +178,7 @@ std::optional<LutApplyResult> promptAndBuildBrightnessContrast(QWidget *parent)
     const auto p = promptBrightnessContrast(parent);
     if (!p)
         return std::nullopt;
-    AdjustLut lut = lutFromBrightnessContrast(*p);
+    adj::AdjustLut lut = adj::lutFromBrightnessContrast(*p);
     if (lut.isNull())
         return std::nullopt;
     return LutApplyResult{ lut, QObject::tr("Brightness/Contrast") };
@@ -189,7 +189,7 @@ std::optional<LutApplyResult> promptAndBuildExposure(QWidget *parent)
     const auto p = promptExposure(parent);
     if (!p)
         return std::nullopt;
-    AdjustLut lut = lutFromExposure(*p);
+    adj::AdjustLut lut = adj::lutFromExposure(*p);
     if (lut.isNull())
         return std::nullopt;
     return LutApplyResult{ lut, QObject::tr("Exposure") };
@@ -200,7 +200,7 @@ std::optional<LutApplyResult> promptAndBuildCurves(QWidget *parent)
     const auto p = promptCurves(parent);
     if (!p)
         return std::nullopt;
-    AdjustLut lut = lutFromCurves(*p);
+    adj::AdjustLut lut = adj::lutFromCurves(*p);
     if (lut.isNull())
         return std::nullopt;
     return LutApplyResult{ lut, QObject::tr("Curves") };
