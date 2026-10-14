@@ -2,6 +2,7 @@
 
 #include "Adjustments.h"
 #include "Document.h"
+#include "Geometry.h"
 #include "Layer.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
@@ -30,6 +31,10 @@ private slots:
     void adjCurvesIdentity();
     void adjCurvesGamma();
     void adjCurvesHighlightClamp();
+    void geomCrop();
+    void geomResize();
+    void geomRotate90();
+    void geomRotate45();
 };
 
 void TestDocument::addRemoveLayer()
@@ -374,6 +379,98 @@ void TestDocument::adjCurvesHighlightClamp()
     const int r = img.pixelColor(0, 0).red();
     // LUT[128] 在两点之间平滑插值,大概 150..180(曲线下凹)
     QVERIFY2(r >= 140 && r <= 190, qPrintable(QString("got %1").arg(r)));
+}
+
+// ============================== Geometry ==============================
+void TestDocument::geomCrop()
+{
+    // 4x4 纯色图,裁剪中心 2x2
+    QImage img(4, 4, QImage::Format_ARGB32);
+    img.fill(QColor(0, 0, 0));
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x)
+            img.setPixelColor(x, y, QColor(y * 50, y * 50, y * 50));
+
+    const QImage out = geom::crop(img, QRect(1, 1, 2, 2));
+    QCOMPARE(out.size(), QSize(2, 2));
+    QCOMPARE(out.pixelColor(0, 0).red(), 50);   // 原 (1,1)
+    QCOMPARE(out.pixelColor(1, 1).red(), 150);  // 原 (2,2)
+
+    // 越界:与图像取交集,返回裁剪后的尺寸
+    const QImage out2 = geom::crop(img, QRect(-2, -2, 5, 5));
+    QCOMPARE(out2.size(), QSize(3, 3)); // 0..2 截断
+    QCOMPARE(out2.pixelColor(0, 0).red(), 0); // 原 (0,0)
+
+    // 完全在图外 → 空图
+    const QImage out3 = geom::crop(img, QRect(10, 10, 1, 1));
+    QVERIFY(out3.isNull());
+}
+
+void TestDocument::geomResize()
+{
+    QImage img(4, 4, QImage::Format_ARGB32);
+    img.fill(QColor(128, 128, 128));
+
+    // 放大:8x8,新画布应是原图的 2×2 平铺
+    const QImage big = geom::resize(img, 8, 8);
+    QCOMPARE(big.size(), QSize(8, 8));
+    QCOMPARE(big.pixelColor(0, 0).red(), 128);
+    QCOMPARE(big.pixelColor(7, 7).red(), 128);
+
+    // 缩小:2x2
+    const QImage small = geom::resize(img, 2, 2);
+    QCOMPARE(small.size(), QSize(2, 2));
+    QCOMPARE(small.pixelColor(0, 0).red(), 128);
+
+    // 非法参数 → 空图
+    QVERIFY(geom::resize(img, 0, 0).isNull());
+}
+
+void TestDocument::geomRotate90()
+{
+    // 在 (0,0) 画红,(3,0) 画绿 → 顺时针 90° 后:
+    //   红应该在 (3,0) 行的右上角,(3,0) 的绿在 (3,3)
+    // 简化:2x2 红 + 蓝,旋转 90° 后(0,0)→(1,0) 等
+    QImage img(2, 2, QImage::Format_ARGB32);
+    img.setPixelColor(0, 0, QColor(255, 0, 0)); // R
+    img.setPixelColor(1, 0, QColor(0, 0, 255)); // B
+    img.fill(Qt::black);
+
+    // quarters=1 → CW 90°
+    QImage r1 = geom::rotate90(img, 1);
+    QCOMPARE(r1.size(), QSize(2, 2));
+    // 旋转后 R 应出现在 (1,0),B 在 (1,1)
+    QCOMPARE(r1.pixelColor(1, 0).red(), 255);
+    QCOMPARE(r1.pixelColor(1, 1).blue(), 255);
+
+    // quarters=4 等同 0
+    QImage r0 = geom::rotate90(img, 4);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            QCOMPARE(r0.pixel(x, y), img.pixel(x, y));
+}
+
+void TestDocument::geomRotate45()
+{
+    // 2x2 任意角度旋转 → 输出是新尺寸包围盒
+    QImage img(2, 2, QImage::Format_ARGB32);
+    img.fill(QColor(50, 100, 150));
+
+    const QImage out = geom::rotateArbitrary(img, 45.0, Qt::white);
+    // 2x2 45° 旋转后包围盒:ceil(2*0.707+2*0.707)=ceil(2.83)=3
+    QCOMPARE(out.size(), QSize(3, 3));
+    // 中心点(1,1)应保留原色(在旋转中心)
+    QCOMPARE(out.pixelColor(1, 1).red(), 50);
+
+    // 整数 90° 走快速路径,应等于 rotate90
+    const QImage fast = geom::rotateArbitrary(img, 90.0, Qt::white);
+    const QImage direct = geom::rotate90(img, 1);
+    QCOMPARE(fast.size(), direct.size());
+
+    // 0° 直接返回原图
+    const QImage zero = geom::rotateArbitrary(img, 0.0);
+    QCOMPARE(zero.size(), img.size());
+    QCOMPARE(zero.pixelColor(0, 0), img.pixelColor(0, 0));
 }
 
 QTEST_MAIN(TestDocument)
