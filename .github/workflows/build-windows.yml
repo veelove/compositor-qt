@@ -44,9 +44,9 @@ jobs:
           cp "$QT_ROOT_DIR/plugins/platforms/qoffscreen.dll" platforms/ 2>/dev/null && echo "qoffscreen copied" || echo "no qoffscreen"
           ls platforms/ | head
           # Windows headless CI:必须用 offscreen 平台插件,否则 GUI subsystem 启动失败
-          # QTEST_GUILESS_MAIN 不接受 Qt 平台 CLI 参数,只能通过环境变量
+          # QTest 不接受 Qt 平台 CLI 参数,只能通过环境变量
           echo "=== run tst_document (offscreen) ==="
-          QT_QPA_PLATFORM=offscreen QT_LOGGING_RULES="qt.qpa.*=false" ./tst_document.exe 2>&1
+          QT_QPA_PLATFORM=offscreen ./tst_document.exe
           TEST_EXIT=$?
           echo "=== end (exit $TEST_EXIT) ==="
           exit $TEST_EXIT
