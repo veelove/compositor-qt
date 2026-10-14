@@ -17,7 +17,6 @@ namespace {
 
 class ParamDialog : public QDialog
 {
-    Q_OBJECT
 public:
     explicit ParamDialog(const QString &title, QWidget *parent = nullptr)
         : QDialog(parent)
