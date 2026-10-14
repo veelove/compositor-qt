@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AdjustLut.h"
+
 #include <QImage>
 #include <QPoint>
 #include <QRect>
@@ -49,6 +51,22 @@ private:
     Layer *m_layer;
     QRect m_rect;
     QImage m_before;
+};
+
+// 调色 LUT:对 Document.renderLut 做 before/after 记录(非破坏性),
+// undo/redo 切换 LUT,从而触发重绘。
+class AdjustLutCommand : public QUndoCommand
+{
+public:
+    AdjustLutCommand(Document *document, const adj::AdjustLut &before,
+                     const adj::AdjustLut &after, const QString &name, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    adj::AdjustLut m_before;
+    adj::AdjustLut m_after;
 };
 
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。

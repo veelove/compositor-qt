@@ -68,6 +68,7 @@ private slots:
     void lutComposeSemantics();
     void documentRenderLut();
     void gpuRendererLutConsistency();
+    void adjLutCommandUndoRedo();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1053,6 +1054,29 @@ void TestDocument::gpuRendererLutConsistency()
             if (gImg.pixel(x, y) != pImg.pixel(x, y))
                 differ = true;
     QVERIFY(!differ);
+}
+
+void TestDocument::adjLutCommandUndoRedo()
+{
+    // AdjustLutCommand:redo 设置新 LUT,undo 还原
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), Qt::white);
+    doc.addLayer(layer);
+    QVERIFY(doc.renderLut().isNull());
+
+    adj::LevelsParams p; p.range.gamma = 0.5;  // 提亮
+    const adj::AdjustLut bright = adj::lutFromLevels(p);
+    QVERIFY(!bright.isNull());
+
+    QUndoStack stack;
+    stack.push(new AdjustLutCommand(&doc, doc.renderLut(), bright,
+                                    QStringLiteral("Levels")));
+    QCOMPARE(doc.renderLut().data, bright.data); // redo(首次执行)
+    stack.undo();
+    QVERIFY(doc.renderLut().isNull());            // 还原
+    stack.redo();
+    QCOMPARE(doc.renderLut().data, bright.data);  // 再次应用
+    QVERIFY(stack.canUndo());
 }
 
 QTEST_MAIN(TestDocument)

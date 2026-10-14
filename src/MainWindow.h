@@ -12,6 +12,8 @@ class QColor;
 class QLabel;
 class QImage;
 
+namespace adjui { struct LutApplyResult; }
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -42,6 +44,16 @@ private:
     void filterMotionBlur();
     void filterAddNoise();
     void filterVignette();
+
+    // 调色(非破坏性 LUT 调色,走 AdjustLutCommand)
+    void applyLutAdjustment(const QString &name, const std::function<std::optional<adjui::LutApplyResult>()> &prompt);
+    void adjLevels();
+    void adjBrightnessContrast();
+    void adjExposure();
+    void adjCurves();
+    void adjHueSaturation();
+    void adjInvert();
+    void adjResetLut();
 
     CanvasView *m_canvas = nullptr;
     LayersPanel *m_layersPanel = nullptr;
@@ -74,4 +86,12 @@ private:
     QAction *m_toolMoveAction = nullptr;
     QAction *m_toolEyedropperAction = nullptr;
     QAction *m_toolSelectAction = nullptr;
+    // Adjustments(Image 菜单)
+    QAction *m_adjLevelsAction = nullptr;
+    QAction *m_adjBcAction = nullptr;
+    QAction *m_adjExposureAction = nullptr;
+    QAction *m_adjCurvesAction = nullptr;
+    QAction *m_adjHsvAction = nullptr;
+    QAction *m_adjInvertAction = nullptr;
+    QAction *m_adjResetAction = nullptr;
 };

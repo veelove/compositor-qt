@@ -2,6 +2,8 @@
 
 #include "CanvasView.h"
 #include "Document.h"
+#include "Adjustments.h"
+#include "AdjustmentsUi.h"
 #include "Filters.h"
 #include "FiltersUi.h"
 #include "Layer.h"
@@ -119,6 +121,21 @@ void MainWindow::createActions()
 
     m_filterVignetteAction = new QAction(tr("&Vignette..."), this);
     connect(m_filterVignetteAction, &QAction::triggered, this, &MainWindow::filterVignette);
+
+    m_adjLevelsAction = new QAction(tr("&Levels..."), this);
+    connect(m_adjLevelsAction, &QAction::triggered, this, &MainWindow::adjLevels);
+    m_adjBcAction = new QAction(tr("Brightness/&Contrast..."), this);
+    connect(m_adjBcAction, &QAction::triggered, this, &MainWindow::adjBrightnessContrast);
+    m_adjExposureAction = new QAction(tr("E&xposure..."), this);
+    connect(m_adjExposureAction, &QAction::triggered, this, &MainWindow::adjExposure);
+    m_adjCurvesAction = new QAction(tr("&Curves..."), this);
+    connect(m_adjCurvesAction, &QAction::triggered, this, &MainWindow::adjCurves);
+    m_adjHsvAction = new QAction(tr("&Hue/Saturation..."), this);
+    connect(m_adjHsvAction, &QAction::triggered, this, &MainWindow::adjHueSaturation);
+    m_adjInvertAction = new QAction(tr("&Invert"), this);
+    connect(m_adjInvertAction, &QAction::triggered, this, &MainWindow::adjInvert);
+    m_adjResetAction = new QAction(tr("&Reset Adjustments"), this);
+    connect(m_adjResetAction, &QAction::triggered, this, &MainWindow::adjResetLut);
 }
 
 void MainWindow::createMenus()
@@ -147,6 +164,17 @@ void MainWindow::createMenus()
     filterMenu->addSeparator();
     filterMenu->addAction(m_filterNoiseAction);
     filterMenu->addAction(m_filterVignetteAction);
+
+    QMenu *imageMenu = menuBar()->addMenu(tr("&Image"));
+    imageMenu->addAction(m_adjLevelsAction);
+    imageMenu->addAction(m_adjCurvesAction);
+    imageMenu->addAction(m_adjExposureAction);
+    imageMenu->addAction(m_adjBcAction);
+    imageMenu->addAction(m_adjHsvAction);
+    imageMenu->addSeparator();
+    imageMenu->addAction(m_adjInvertAction);
+    imageMenu->addSeparator();
+    imageMenu->addAction(m_adjResetAction);
 }
 
 void MainWindow::createStatusBar()
@@ -410,6 +438,99 @@ void MainWindow::filterVignette()
     applyFilterToActiveLayer(tr("Vignette"), [p](const QImage &src) {
         return filt::vignette(src, p->amount, p->color, p->midpoint, p->roundness, p->feather);
     });
+}
+
+// ---------------------------------------------------------------------------
+// 调色:弹对话框 → 应用 LUT → 撤销命令
+// ---------------------------------------------------------------------------
+void MainWindow::applyLutAdjustment(
+    const QString &name, const std::function<std::optional<adjui::LutApplyResult>()> &prompt)
+{
+    if (!m_document) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    const auto res = prompt();
+    if (!res)
+        return; // 用户取消或恒等
+    m_undoStack.push(new AdjustLutCommand(m_document, m_document->renderLut(),
+                                          res->lut, name));
+    statusBar()->showMessage(tr("已应用 %1").arg(name), 3000);
+}
+
+void MainWindow::adjLevels()
+{
+    applyLutAdjustment(tr("Levels"),
+                       [this] { return adjui::promptAndBuildLevels(this); });
+}
+
+void MainWindow::adjBrightnessContrast()
+{
+    applyLutAdjustment(tr("Brightness/Contrast"),
+                       [this] { return adjui::promptAndBuildBrightnessContrast(this); });
+}
+
+void MainWindow::adjExposure()
+{
+    applyLutAdjustment(tr("Exposure"),
+                       [this] { return adjui::promptAndBuildExposure(this); });
+}
+
+void MainWindow::adjCurves()
+{
+    applyLutAdjustment(tr("Curves"),
+                       [this] { return adjui::promptAndBuildCurves(this); });
+}
+
+void MainWindow::adjHueSaturation()
+{
+    // HSV 非 LUT 类,直接在文档所有图层像素上应用并压入"未命名"LUT 还原
+    // MVP:把 HSV 应用为渲染 LUT(在最终合成图上),仍走 AdjustLutCommand。
+    // 简单做法:把 HSV 转成 LUT 不现实(需要逐像素不同),所以用单次"图像替换"语义:
+    // 把当前 renderLut 渲染结果写回图层,然后清空 LUT;但更简单的方案是
+    // 弹窗 → 通过 PainterRenderer 拿一张已 LUT 化的图 → 对它应用 HSV → 写回活动图层。
+    if (!m_document || !m_document->activeLayer()) {
+        statusBar()->showMessage(tr("没有活动图层"), 3000);
+        return;
+    }
+    const auto p = adjui::promptHueSaturation(this);
+    if (!p)
+        return;
+    Layer *layer = m_document->activeLayer();
+    const QImage before = layer->pixels();
+    QImage after = before;
+    adj::applyHsv(after, *p);
+    if (after == before)
+        return;
+    m_undoStack->push(new FilterCommand(layer, before, after, tr("Hue/Saturation")));
+    statusBar()->showMessage(tr("已应用 Hue/Saturation"), 3000);
+}
+
+void MainWindow::adjInvert()
+{
+    if (!m_document || !m_document->activeLayer()) {
+        statusBar()->showMessage(tr("没有活动图层"), 3000);
+        return;
+    }
+    Layer *layer = m_document->activeLayer();
+    const QImage before = layer->pixels();
+    QImage after = before;
+    adj::applyInvert(after);
+    if (after == before)
+        return;
+    m_undoStack->push(new FilterCommand(layer, before, after, tr("Invert")));
+    statusBar()->showMessage(tr("已应用 Invert"), 3000);
+}
+
+void MainWindow::adjResetLut()
+{
+    if (!m_document)
+        return;
+    if (m_document->renderLut().isNull())
+        return; // 没有调色,无需操作
+    m_undoStack->push(new AdjustLutCommand(m_document, m_document->renderLut(),
+                                          adj::identityLut(), tr("Reset Adjustments")));
+    statusBar()->showMessage(tr("已重置调色"), 3000);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

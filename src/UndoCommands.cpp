@@ -103,6 +103,29 @@ void ClearRectCommand::redo()
 }
 
 // ---------------------------------------------------------------------------
+// AdjustLutCommand
+// ---------------------------------------------------------------------------
+AdjustLutCommand::AdjustLutCommand(Document *document, const adj::AdjustLut &before,
+                                   const adj::AdjustLut &after, const QString &name,
+                                   QUndoCommand *parent)
+    : QUndoCommand(name, parent)
+    , m_document(document)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void AdjustLutCommand::undo()
+{
+    m_document->setRenderLut(m_before);
+}
+
+void AdjustLutCommand::redo()
+{
+    m_document->setRenderLut(m_after);
+}
+
+// ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
 AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QUndoCommand *parent)
