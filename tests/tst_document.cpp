@@ -2,6 +2,7 @@
 
 #include "Adjustments.h"
 #include "Document.h"
+#include "Filters.h"
 #include "Geometry.h"
 #include "Layer.h"
 #include "PainterRenderer.h"
@@ -49,6 +50,10 @@ private slots:
     void spikeVisionStub();
     void psdRoundTripFlat();
     void psdRoundTripGradient();
+    void filtGaussianIdentity();
+    void filtGaussianUniformity();
+    void filtNoiseDeterministic();
+    void filtVignetteDarkens();
 };
 
 void TestDocument::addRemoveLayer()
@@ -735,6 +740,65 @@ void TestDocument::psdRoundTripGradient()
     // 角落 (7,7) 红=210 绿=210
     QCOMPARE(r.composite.pixelColor(7, 7).red(),  210);
     QCOMPARE(r.composite.pixelColor(7, 7).green(),210);
+}
+
+// ============================== Filters ==============================
+void TestDocument::filtGaussianIdentity()
+{
+    // radius=0 → 原样
+    QImage img = makeGray4();
+    const QImage out = filt::gaussianBlur(img, 0.0);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            QCOMPARE(out.pixel(x, y), img.pixel(x, y));
+}
+
+void TestDocument::filtGaussianUniformity()
+{
+    // 纯色图模糊 → 仍是纯色(均匀区域卷积不变)
+    QImage img(16, 16, QImage::Format_ARGB32);
+    img.fill(QColor(80, 120, 200));
+    const QImage out = filt::gaussianBlur(img, 2.0);
+    QCOMPARE(out.size(), img.size());
+    // 中心像素应保持接近原色(均匀场)
+    QCOMPARE(out.pixelColor(8, 8).red(),   80);
+    QCOMPARE(out.pixelColor(8, 8).green(), 120);
+    QCOMPARE(out.pixelColor(8, 8).blue(),  200);
+    // 角像素也应接近(边缘 clamp)
+    QVERIFY(qAbs(out.pixelColor(0, 0).red() - 80) < 2);
+}
+
+void TestDocument::filtNoiseDeterministic()
+{
+    // 固定 seed → 两次结果一致(可复现)
+    QImage img(8, 8, QImage::Format_ARGB32);
+    img.fill(QColor(128, 128, 128));
+    const QImage a = filt::addNoise(img, 20.0, true, false, 42);
+    const QImage b = filt::addNoise(img, 20.0, true, false, 42);
+    QCOMPARE(a, b);
+    // 有噪声 → 与原始不同(至少有一个像素变化)
+    QImage img2(8, 8, QImage::Format_ARGB32);
+    img2.fill(QColor(128, 128, 128));
+    const QImage noisy = filt::addNoise(img2, 50.0, true, false, 1);
+    bool changed = false;
+    for (int y = 0; y < 8 && !changed; ++y)
+        for (int x = 0; x < 8 && !changed; ++x)
+            if (noisy.pixel(x, y) != img2.pixel(x, y))
+                changed = true;
+    QVERIFY(changed);
+}
+
+void TestDocument::filtVignetteDarkens()
+{
+    // 黑色 vignette:角比中心更暗
+    QImage img(16, 16, QImage::Format_ARGB32);
+    img.fill(QColor(200, 200, 200));
+    const QImage out = filt::vignette(img, 80.0, Qt::black, 30, 100, 60, 25);
+    const int center = out.pixelColor(8, 8).red();
+    const int corner = out.pixelColor(0, 0).red();
+    QVERIFY2(corner < center, qPrintable(QString("corner %1 vs center %2").arg(corner).arg(center)));
+    // 中心接近原值(200)
+    QVERIFY(qAbs(center - 200) < 5);
 }
 
 QTEST_MAIN(TestDocument)

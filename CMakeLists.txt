@@ -24,6 +24,7 @@ qt_add_library(CompositorCore STATIC
     src/PsdReader.h src/PsdReader.cpp
     src/PsdWriter.h src/PsdWriter.cpp
     src/Adjustments.h src/Adjustments.cpp
+    src/Filters.h src/Filters.cpp
     src/Geometry.h src/Geometry.cpp
     src/RawProvider.h src/RawProvider.cpp
     src/VisionProvider.h
