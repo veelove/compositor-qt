@@ -32,12 +32,17 @@ jobs:
       - name: Test
         shell: bash
         run: |
+          set +e  # 任何一步失败都继续,最后整体检查 tst_document 的退出码
           cd build
           # tst_document 需要 Qt DLL,测试前先部署
+          echo "=== windeployqt ==="
           "$QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw tst_document.exe
+          echo "windeployqt exit=$?"
           echo "=== run tst_document ==="
           ./tst_document.exe
-          echo "=== end (exit $?) ==="
+          TEST_EXIT=$?
+          echo "=== end (exit $TEST_EXIT) ==="
+          exit $TEST_EXIT
 
       - name: Package runtime (smoke)
         shell: bash
