@@ -9,6 +9,8 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPen>
+#include <QSizeF>
 #include <QUndoStack>
 #include <QWheelEvent>
 
@@ -23,6 +25,39 @@ CanvasView::CanvasView(QWidget *parent)
 }
 
 CanvasView::~CanvasView() = default;
+
+void CanvasView::setTool(Tool tool)
+{
+    if (m_tool == tool)
+        return;
+    // 切换工具时结束进行中的操作
+    if (m_brushing)
+        endBrush();
+    if (m_moving)
+        endMove();
+    m_tool = tool;
+    updateCursor();
+    emit toolChanged(m_tool);
+    update();
+}
+
+void CanvasView::updateCursor()
+{
+    if (m_panning) {
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+    switch (m_tool) {
+    case Tool::Move:
+        setCursor(Qt::SizeAllCursor);
+        break;
+    case Tool::Eyedropper:
+    case Tool::Brush:
+    case Tool::RectSelect:
+        setCursor(Qt::CrossCursor);
+        break;
+    }
+}
 
 void CanvasView::setDocument(Document *document)
 {
@@ -121,6 +156,8 @@ void CanvasView::paintEvent(QPaintEvent *)
         p.setPen(palette().placeholderText().color());
         p.drawText(docRect, Qt::AlignCenter, tr("Compositor Qt · 原型画布"));
     }
+
+    drawSelectionOverlay(p, docRect);
 }
 
 void CanvasView::wheelEvent(QWheelEvent *event)
@@ -132,6 +169,7 @@ void CanvasView::wheelEvent(QWheelEvent *event)
 
 void CanvasView::mousePressEvent(QMouseEvent *event)
 {
+    // 平移(空格+左键 / 中键)优先级最高,任何工具下都可用
     if ((event->button() == Qt::LeftButton && m_spacePressed)
         || event->button() == Qt::MiddleButton) {
         m_panning = true;
@@ -141,18 +179,31 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() == Qt::LeftButton && m_document && m_document->activeLayer()) {
-        m_brushing = true;
-        m_lastBrushPos = viewToCanvas(event->pos()).toPoint();
-        m_dirtyRect = QRect();
-        // 整层快照,释放时裁出脏矩形生成撤销命令
-        m_beforeFull = QImage(m_document->activeLayer()->pixels());
-        setCursor(Qt::CrossCursor);
-        event->accept();
+    if (event->button() != Qt::LeftButton || !m_document || !m_document->activeLayer()) {
+        QWidget::mousePressEvent(event);
         return;
     }
 
-    QWidget::mousePressEvent(event);
+    const QPoint canvasPos = viewToCanvas(event->pos()).toPoint();
+    switch (m_tool) {
+    case Tool::Brush:
+        m_brushing = true;
+        m_lastBrushPos = canvasPos;
+        m_dirtyRect = QRect();
+        // 整层快照,释放时裁出脏矩形生成撤销命令
+        m_beforeFull = QImage(m_document->activeLayer()->pixels());
+        break;
+    case Tool::Move:
+        beginMove(canvasPos);
+        break;
+    case Tool::Eyedropper:
+        pickColor(canvasPos);
+        break;
+    case Tool::RectSelect:
+        beginSelect(canvasPos);
+        break;
+    }
+    event->accept();
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event)
@@ -165,10 +216,31 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
         return;
     }
 
-    if (m_brushing) {
-        paintBrush(viewToCanvas(event->pos()).toPoint());
-        event->accept();
-        return;
+    const QPoint canvasPos = viewToCanvas(event->pos()).toPoint();
+    switch (m_tool) {
+    case Tool::Brush:
+        if (m_brushing) {
+            paintBrush(canvasPos);
+            event->accept();
+            return;
+        }
+        break;
+    case Tool::Move:
+        if (m_moving) {
+            dragMove(canvasPos);
+            event->accept();
+            return;
+        }
+        break;
+    case Tool::RectSelect:
+        if (m_selecting) {
+            dragSelect(canvasPos);
+            event->accept();
+            return;
+        }
+        break;
+    case Tool::Eyedropper:
+        break;
     }
 
     const QPointF c = viewToCanvas(event->pos());
@@ -177,15 +249,29 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && m_brushing) {
-        endBrush();
-        setCursor(Qt::ArrowCursor);
-        event->accept();
-        return;
+    if (event->button() == Qt::LeftButton) {
+        if (m_brushing) {
+            endBrush();
+            updateCursor();
+            event->accept();
+            return;
+        }
+        if (m_moving) {
+            endMove();
+            updateCursor();
+            event->accept();
+            return;
+        }
+        if (m_selecting) {
+            endSelect();
+            updateCursor();
+            event->accept();
+            return;
+        }
     }
     if (event->button() == Qt::LeftButton && m_panning) {
         m_panning = false;
-        setCursor(m_spacePressed ? Qt::OpenHandCursor : Qt::ArrowCursor);
+        updateCursor();
         event->accept();
         return;
     }
@@ -197,6 +283,19 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
     if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
         m_spacePressed = true;
         setCursor(Qt::OpenHandCursor);
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Delete && !m_selection.isEmpty() && m_document) {
+        clearSelection();
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_Escape) {
+        if (!m_selection.isEmpty()) {
+            m_selection = QRect();
+            update();
+        }
         event->accept();
         return;
     }
@@ -242,4 +341,102 @@ void CanvasView::endBrush()
         m_undoStack->push(new PaintCommand(m_document, layer, m_dirtyRect, before, after));
     }
     m_beforeFull = QImage();
+}
+
+// ------------------------------- Move 工具 -------------------------------
+void CanvasView::beginMove(const QPoint &canvasPos)
+{
+    Layer *layer = m_document->activeLayer();
+    if (!layer)
+        return;
+    m_moving = true;
+    m_moveStartCanvas = canvasPos;
+    m_moveStartOffset = layer->offset();
+}
+
+void CanvasView::dragMove(const QPoint &canvasPos)
+{
+    Layer *layer = m_document->activeLayer();
+    if (!layer)
+        return;
+    layer->setOffset(m_moveStartOffset + (canvasPos - m_moveStartCanvas));
+}
+
+void CanvasView::endMove()
+{
+    m_moving = false;
+    Layer *layer = m_document ? m_document->activeLayer() : nullptr;
+    if (!layer)
+        return;
+    const QPoint offset = layer->offset();
+    if (offset != m_moveStartOffset && m_undoStack)
+        m_undoStack->push(new MoveLayerCommand(layer, m_moveStartOffset, offset));
+}
+
+// ---------------------------- Eyedropper 工具 ----------------------------
+void CanvasView::pickColor(const QPoint &canvasPos)
+{
+    if (!m_document)
+        return;
+    const QRect docRect(QPoint(0, 0), m_document->size());
+    if (!docRect.contains(canvasPos))
+        return;
+    const QImage composite = m_renderer->render(*m_document);
+    const QColor color = composite.pixelColor(canvasPos);
+    emit colorPicked(color);
+    emit cursorInfoChanged(tr("取色 %1").arg(color.name()));
+}
+
+// ---------------------------- RectSelect 工具 ----------------------------
+void CanvasView::beginSelect(const QPoint &canvasPos)
+{
+    m_selecting = true;
+    m_selectStart = canvasPos;
+    m_selection = QRect(canvasPos, canvasPos);
+    update();
+}
+
+void CanvasView::dragSelect(const QPoint &canvasPos)
+{
+    QRect sel(m_selectStart, canvasPos);
+    sel = sel.normalized().intersected(QRect(QPoint(0, 0), m_document->size()));
+    m_selection = sel;
+    update();
+}
+
+void CanvasView::endSelect()
+{
+    m_selecting = false;
+    update();
+}
+
+void CanvasView::clearSelection()
+{
+    Layer *layer = m_document ? m_document->activeLayer() : nullptr;
+    if (!layer || m_selection.isEmpty())
+        return;
+    // 画布选区 → 图层像素坐标(减去图层偏移),并裁剪到图层范围
+    QRect pixelRect = m_selection.translated(-layer->offset());
+    pixelRect = pixelRect.intersected(layer->pixels().rect());
+    if (pixelRect.isEmpty()) {
+        m_selection = QRect();
+        update();
+        return;
+    }
+    const QImage before = layer->pixels().copy(pixelRect);
+    if (m_undoStack)
+        m_undoStack->push(new ClearRectCommand(layer, pixelRect, before));
+    m_selection = QRect();
+    update();
+}
+
+void CanvasView::drawSelectionOverlay(QPainter &p, const QRectF &docRect)
+{
+    Q_UNUSED(docRect);
+    if (m_selection.isEmpty())
+        return;
+    const QRectF viewRect(canvasToView(m_selection.topLeft()),
+                          QSizeF(m_selection.size()) * m_zoom);
+    p.setPen(QPen(Qt::white, 1, Qt::DashLine));
+    p.drawRect(viewRect.adjusted(0, 0, -1, -1));
 }

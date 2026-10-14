@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QImage>
 #include <QPointF>
+#include <QRect>
 #include <QSize>
 #include <QWidget>
 
@@ -10,8 +11,19 @@
 
 class Document;
 class Layer;
+class QPainter;
+class QRectF;
 class QUndoStack;
 class Renderer;
+
+// 画布工具:与 Photoshop 基础工具对应(MVP)
+enum class Tool
+{
+    Brush,      // 画笔
+    Move,       // 移动图层
+    Eyedropper, // 吸管取色
+    RectSelect  // 矩形选区(Delete 清除)
+};
 
 class CanvasView : public QWidget
 {
@@ -25,6 +37,9 @@ public:
     void setUndoStack(QUndoStack *stack) { m_undoStack = stack; }
 
     double zoom() const { return m_zoom; }
+    Tool tool() const { return m_tool; }
+    void setTool(Tool tool);
+    void setBrushColor(const QColor &color) { m_brushColor = color; }
 
 public slots:
     void zoomIn();
@@ -35,6 +50,8 @@ public slots:
 signals:
     void zoomChanged(double zoom);
     void cursorInfoChanged(const QString &text);
+    void toolChanged(Tool tool);
+    void colorPicked(const QColor &color); // 吸管取色
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -51,8 +68,19 @@ private:
     QPointF viewToCanvas(const QPointF &p) const { return (p - m_pan) / m_zoom; }
     void applyZoom(double factor, const QPointF &anchor);
     void setZoom(double zoom);
+    void updateCursor();
+    // 工具事件
     void paintBrush(const QPoint &canvasPos);
     void endBrush();
+    void beginMove(const QPoint &canvasPos);
+    void dragMove(const QPoint &canvasPos);
+    void endMove();
+    void pickColor(const QPoint &canvasPos);
+    void beginSelect(const QPoint &canvasPos);
+    void dragSelect(const QPoint &canvasPos);
+    void endSelect();
+    void clearSelection();
+    void drawSelectionOverlay(QPainter &p, const QRectF &docRect);
 
     Document *m_document = nullptr;
     QUndoStack *m_undoStack = nullptr;
@@ -64,11 +92,24 @@ private:
     bool m_spacePressed = false;
     QPoint m_lastPanPos;
 
-    // 原型画笔
+    // 当前工具
+    Tool m_tool = Tool::Brush;
+
+    // 画笔
     bool m_brushing = false;
     QPoint m_lastBrushPos;
     QRect m_dirtyRect;
     QImage m_beforeFull; // 拖拽期间的活动层整层快照(用于生成撤销快照)
     QColor m_brushColor = QColor(30, 144, 255);
     int m_brushSize = 12;
+
+    // 移动工具
+    bool m_moving = false;
+    QPoint m_moveStartCanvas;   // 按下时的画布坐标
+    QPoint m_moveStartOffset;   // 按下时图层偏移
+
+    // 矩形选区
+    bool m_selecting = false;
+    QPoint m_selectStart;       // 选区起点(画布坐标)
+    QRect m_selection;          // 定稿后的选区(画布坐标)
 };

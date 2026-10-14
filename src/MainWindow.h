@@ -8,6 +8,7 @@
 class CanvasView;
 class Document;
 class LayersPanel;
+class QColor;
 class QLabel;
 class QImage;
 
@@ -30,6 +31,9 @@ private:
     void saveDocument();
     void clearDocument();
     void createDockPanels();
+    void createToolBar();
+    void syncToolActions(int toolIndex);
+    void onColorPicked(const QColor &color);
 
     // 滤镜:在活动图层上执行变换并压入撤销栈(名称用于 Undo 菜单提示)
     void applyFilterToActiveLayer(const QString &name,
@@ -65,4 +69,9 @@ private:
     QAction *m_filterMotionAction = nullptr;
     QAction *m_filterNoiseAction = nullptr;
     QAction *m_filterVignetteAction = nullptr;
+    // Toolbar
+    QAction *m_toolBrushAction = nullptr;
+    QAction *m_toolMoveAction = nullptr;
+    QAction *m_toolEyedropperAction = nullptr;
+    QAction *m_toolSelectAction = nullptr;
 };

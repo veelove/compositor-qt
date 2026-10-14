@@ -35,3 +35,11 @@ void Layer::setOpacity(qreal opacity)
     m_opacity = opacity;
     emit changed();
 }
+
+void Layer::setOffset(const QPoint &offset)
+{
+    if (m_offset == offset)
+        return;
+    m_offset = offset;
+    emit changed();
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QImage>
+#include <QPoint>
 #include <QRect>
 #include <QUndoCommand>
 
@@ -20,6 +21,34 @@ private:
     Layer *m_layer;
     QImage m_before;
     QImage m_after;
+};
+
+// 移动图层:记录位置偏移 before/after。
+class MoveLayerCommand : public QUndoCommand
+{
+public:
+    MoveLayerCommand(Layer *layer, const QPoint &before, const QPoint &after, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Layer *m_layer;
+    QPoint m_before;
+    QPoint m_after;
+};
+
+// 清除选区:把矩形区域像素置为透明,undo 恢复 before 快照。
+class ClearRectCommand : public QUndoCommand
+{
+public:
+    ClearRectCommand(Layer *layer, const QRect &rect, const QImage &before, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Layer *m_layer;
+    QRect m_rect;
+    QImage m_before;
 };
 
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。

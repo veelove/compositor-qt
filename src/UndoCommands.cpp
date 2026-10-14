@@ -18,6 +18,16 @@ void releaseOrphaned(LayerT *layer, Document *doc)
         delete layer;
 }
 
+// 把 image 以覆盖模式(含 alpha)画到 layer 的 rect 区域,并通知重绘
+void blitRegion(Layer *layer, const QRect &rect, const QImage &image)
+{
+    QPainter p(&layer->pixels());
+    p.setCompositionMode(QPainter::CompositionMode_Source); // 覆盖含 alpha
+    p.drawImage(rect.topLeft(), image);
+    p.end();
+    emit layer->changed();
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -41,6 +51,54 @@ void FilterCommand::undo()
 void FilterCommand::redo()
 {
     m_layer->pixels() = m_after;
+    emit m_layer->changed();
+}
+
+// ---------------------------------------------------------------------------
+// MoveLayerCommand
+// ---------------------------------------------------------------------------
+MoveLayerCommand::MoveLayerCommand(Layer *layer, const QPoint &before, const QPoint &after,
+                                   QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Move Layer"), parent)
+    , m_layer(layer)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void MoveLayerCommand::undo()
+{
+    m_layer->setOffset(m_before);
+}
+
+void MoveLayerCommand::redo()
+{
+    m_layer->setOffset(m_after);
+}
+
+// ---------------------------------------------------------------------------
+// ClearRectCommand
+// ---------------------------------------------------------------------------
+ClearRectCommand::ClearRectCommand(Layer *layer, const QRect &rect, const QImage &before,
+                                   QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Clear Selection"), parent)
+    , m_layer(layer)
+    , m_rect(rect)
+    , m_before(before)
+{
+}
+
+void ClearRectCommand::undo()
+{
+    blitRegion(m_layer, m_rect, m_before);
+}
+
+void ClearRectCommand::redo()
+{
+    QPainter p(&m_layer->pixels());
+    p.setCompositionMode(QPainter::CompositionMode_Clear); // 区域置透明
+    p.fillRect(m_rect, Qt::transparent);
+    p.end();
     emit m_layer->changed();
 }
 
@@ -115,15 +173,6 @@ PaintCommand::PaintCommand(Document *document, Layer *layer, const QRect &dirtyR
     , m_before(before)
     , m_after(after)
 {
-}
-
-static void blitRegion(Layer *layer, const QRect &rect, const QImage &image)
-{
-    QPainter p(&layer->pixels());
-    p.setCompositionMode(QPainter::CompositionMode_Source); // 覆盖含 alpha
-    p.drawImage(rect.topLeft(), image);
-    p.end();
-    emit layer->changed();
 }
 
 void PaintCommand::undo()

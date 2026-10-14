@@ -13,6 +13,7 @@
 #include "VisionProvider.h"
 
 #include <QPainter>
+#include <QPoint>
 #include <QUndoStack>
 
 class TestDocument : public QObject
@@ -55,6 +56,9 @@ private slots:
     void filtNoiseDeterministic();
     void filtVignetteDarkens();
     void filterCommandUndoRedo();
+    void layerOffsetRender();
+    void moveLayerCommandUndoRedo();
+    void clearRectCommandUndoRedo();
 };
 
 void TestDocument::addRemoveLayer()
@@ -821,6 +825,57 @@ void TestDocument::filterCommandUndoRedo()
     stack.redo();
     QCOMPARE(layer->pixels(), after);   // 再次应用
     QVERIFY(stack.canUndo());
+}
+
+void TestDocument::layerOffsetRender()
+{
+    // 2x2 红图层 offset(3,2) → 合成图中红块偏移出现,其余透明
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(2, 2), Qt::red);
+    layer->setOffset(QPoint(3, 2));
+    doc.addLayer(layer);
+
+    PainterRenderer renderer;
+    const QImage out = renderer.render(doc);
+    QCOMPARE(out.pixelColor(3, 2).red(), 255);   // offset 起点
+    QCOMPARE(out.pixelColor(4, 3).red(), 255);   // 红块右下角
+    QCOMPARE(out.pixelColor(0, 0).alpha(), 0);   // 其余透明
+    QCOMPARE(out.pixelColor(2, 1).alpha(), 0);   // 红块外
+}
+
+void TestDocument::moveLayerCommandUndoRedo()
+{
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), doc.size(), Qt::blue);
+    doc.addLayer(layer);
+    QCOMPARE(layer->offset(), QPoint(0, 0));
+
+    QUndoStack stack;
+    stack.push(new MoveLayerCommand(layer, QPoint(0, 0), QPoint(10, -5)));
+    QCOMPARE(layer->offset(), QPoint(10, -5)); // redo(首次执行)
+    stack.undo();
+    QCOMPARE(layer->offset(), QPoint(0, 0));   // 还原
+    stack.redo();
+    QCOMPARE(layer->offset(), QPoint(10, -5)); // 再次移动
+}
+
+void TestDocument::clearRectCommandUndoRedo()
+{
+    // 4x4 全白图层,清除左上 2x2 → 该区域透明,undo 恢复
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), Qt::white);
+    doc.addLayer(layer);
+    const QRect rect(0, 0, 2, 2);
+    const QImage before = layer->pixels().copy(rect);
+
+    QUndoStack stack;
+    stack.push(new ClearRectCommand(layer, rect, before));
+    QCOMPARE(layer->pixels().pixelColor(0, 0).alpha(), 0);   // 已清空
+    QCOMPARE(layer->pixels().pixelColor(3, 3).alpha(), 255); // 区域外不受影响
+    stack.undo();
+    QCOMPARE(layer->pixels().pixelColor(0, 0), QColor(Qt::white)); // 恢复
+    stack.redo();
+    QCOMPARE(layer->pixels().pixelColor(0, 0).alpha(), 0);   // 再清除
 }
 
 QTEST_MAIN(TestDocument)

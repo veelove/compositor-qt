@@ -16,7 +16,7 @@ QImage PainterRenderer::render(const Document &document) const
         if (!layer->isVisible() || layer->opacity() <= 0.0)
             continue;
         p.setOpacity(layer->opacity());
-        p.drawImage(QPoint(0, 0), layer->pixels());
+        p.drawImage(layer->offset(), layer->pixels());
         p.setOpacity(1.0);
     }
     p.end();

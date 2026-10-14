@@ -12,6 +12,7 @@
 #include "UndoCommands.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
@@ -24,6 +25,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QStatusBar>
+#include <QToolBar>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -39,6 +41,7 @@ MainWindow::MainWindow(QWidget *parent)
     createMenus();
     createStatusBar();
     createDockPanels();
+    createToolBar();
 
     connect(m_canvas, &CanvasView::zoomChanged, this, [this](double zoom) {
         m_zoomLabel->setText(tr("%1%").arg(qRound(zoom * 100)));
@@ -46,6 +49,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_canvas, &CanvasView::cursorInfoChanged, this, [this](const QString &text) {
         m_cursorLabel->setText(text);
     });
+    connect(m_canvas, &CanvasView::toolChanged, this, [this](Tool tool) {
+        syncToolActions(int(tool));
+    });
+    connect(m_canvas, &CanvasView::colorPicked, this, &MainWindow::onColorPicked);
 
     m_canvas->setFocus();
 }
@@ -161,6 +168,61 @@ void MainWindow::createDockPanels()
     dock->setWidget(m_layersPanel);
     dock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     addDockWidget(Qt::RightDockWidgetArea, dock);
+}
+
+void MainWindow::createToolBar()
+{
+    auto *toolBar = addToolBar(tr("Tools"));
+    toolBar->setObjectName(QStringLiteral("ToolsToolBar"));
+    toolBar->setMovable(false);
+
+    auto *group = new QActionGroup(this);
+    group->setExclusive(true);
+
+    m_toolBrushAction = toolBar->addAction(tr("画笔"));
+    m_toolBrushAction->setCheckable(true);
+    m_toolBrushAction->setChecked(true);
+    m_toolBrushAction->setShortcut(QKeySequence(Qt::Key_B));
+    m_toolBrushAction->setToolTip(tr("画笔 (B)"));
+
+    m_toolMoveAction = toolBar->addAction(tr("移动"));
+    m_toolMoveAction->setCheckable(true);
+    m_toolMoveAction->setShortcut(QKeySequence(Qt::Key_V));
+    m_toolMoveAction->setToolTip(tr("移动图层 (V)"));
+
+    m_toolEyedropperAction = toolBar->addAction(tr("吸管"));
+    m_toolEyedropperAction->setCheckable(true);
+    m_toolEyedropperAction->setShortcut(QKeySequence(Qt::Key_I));
+    m_toolEyedropperAction->setToolTip(tr("吸管取色 (I)"));
+
+    m_toolSelectAction = toolBar->addAction(tr("选区"));
+    m_toolSelectAction->setCheckable(true);
+    m_toolSelectAction->setShortcut(QKeySequence(Qt::Key_M));
+    m_toolSelectAction->setToolTip(tr("矩形选区 (M) · Delete 清除"));
+
+    group->addAction(m_toolBrushAction);
+    group->addAction(m_toolMoveAction);
+    group->addAction(m_toolEyedropperAction);
+    group->addAction(m_toolSelectAction);
+
+    connect(m_toolBrushAction, &QAction::triggered, this, [this] { m_canvas->setTool(Tool::Brush); });
+    connect(m_toolMoveAction, &QAction::triggered, this, [this] { m_canvas->setTool(Tool::Move); });
+    connect(m_toolEyedropperAction, &QAction::triggered, this, [this] { m_canvas->setTool(Tool::Eyedropper); });
+    connect(m_toolSelectAction, &QAction::triggered, this, [this] { m_canvas->setTool(Tool::RectSelect); });
+}
+
+void MainWindow::syncToolActions(int toolIndex)
+{
+    const QList<QAction *> actions{ m_toolBrushAction, m_toolMoveAction,
+                                    m_toolEyedropperAction, m_toolSelectAction };
+    for (int i = 0; i < actions.size(); ++i)
+        actions[i]->setChecked(i == toolIndex);
+}
+
+void MainWindow::onColorPicked(const QColor &color)
+{
+    m_canvas->setBrushColor(color);
+    statusBar()->showMessage(tr("画笔颜色: %1").arg(color.name()), 3000);
 }
 
 void MainWindow::newDocument()

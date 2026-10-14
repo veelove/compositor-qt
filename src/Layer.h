@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QImage>
 #include <QObject>
+#include <QPoint>
 #include <QSize>
 #include <QString>
 #include <QUuid>
@@ -28,6 +29,10 @@ public:
     QImage &pixels() { return m_pixels; }
     const QImage &pixels() const { return m_pixels; }
 
+    // 相对画布原点的显示偏移(移动工具/渲染定位用)
+    QPoint offset() const { return m_offset; }
+    void setOffset(const QPoint &offset);
+
 signals:
     void changed(); // 像素或显示属性变化
 
@@ -37,4 +42,5 @@ private:
     bool m_visible = true;
     qreal m_opacity = 1.0;
     QImage m_pixels;
+    QPoint m_offset;
 };
