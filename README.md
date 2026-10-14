@@ -58,8 +58,9 @@ ctest --test-dir build --output-on-failure
 ## 路线图（对齐评估报告）
 
 - [x] 工程骨架
-- [x] 文档模型 + 撤销/重做 + 渲染抽象（PainterRenderer） + 原型画笔  ← 当前
-- [ ] CPU 像素算法直译（PSD 解析等）
+- [x] 文档模型 + 撤销/重做 + 渲染抽象（PainterRenderer） + 原型画笔
+- [x] PSD 解析（PackBits + 图层 + 通道 + 简单 alpha 合成）  ← 当前
+- [ ] CPU 像素算法：直译 Filters/Levels/Curves/HueSaturation 等
 - [ ] GPU 画布与渲染（QRhiRenderer，替换 PainterRenderer）
 - [ ] RAW / 视觉智能（高风险，需先 Spike）
-- [ ] 导入导出（PSD/EXR/CMYK）
+- [ ] PSD 导出（保存回写）

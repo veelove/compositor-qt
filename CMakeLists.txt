@@ -20,6 +20,7 @@ qt_add_library(CompositorCore STATIC
     src/Renderer.h
     src/PainterRenderer.h src/PainterRenderer.cpp
     src/UndoCommands.h src/UndoCommands.cpp
+    src/PsdReader.h src/PsdReader.cpp
 )
 target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(CompositorCore PUBLIC Qt6::Widgets)
