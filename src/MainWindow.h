@@ -22,6 +22,8 @@ private:
     void createMenus();
     void createStatusBar();
     void newDocument();
+    void openDocument();
+    void saveDocument();
     void clearDocument();
 
     CanvasView *m_canvas = nullptr;
@@ -29,6 +31,7 @@ private:
     QUndoStack m_undoStack;
     QLabel *m_zoomLabel = nullptr;
     QLabel *m_cursorLabel = nullptr;
+    QString m_currentPath; // 已打开/保存的文件路径
 
     // File
     QAction *m_newAction = nullptr;

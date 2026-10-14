@@ -3,8 +3,16 @@
 #include "CanvasView.h"
 #include "Document.h"
 #include "Layer.h"
+#include "PainterRenderer.h"
+#include "PsdReader.h"
+#include "PsdWriter.h"
 
 #include <QAction>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QImage>
+#include <QMessageBox>
 #include <QCloseEvent>
 #include <QKeySequence>
 #include <QLabel>
@@ -49,11 +57,11 @@ void MainWindow::createActions()
 
     m_openAction = new QAction(tr("&Open..."), this);
     m_openAction->setShortcut(QKeySequence::Open);
-    connect(m_openAction, &QAction::triggered, this, [] { /* TODO: 打开文件 */ });
+    connect(m_openAction, &QAction::triggered, this, &MainWindow::openDocument);
 
     m_saveAction = new QAction(tr("&Save"), this);
     m_saveAction->setShortcut(QKeySequence::Save);
-    m_saveAction->setEnabled(false);
+    m_saveAction->setEnabled(true); // 有文档即可保存,openDocument 后自动有
 
     m_quitAction = new QAction(tr("E&xit"), this);
     m_quitAction->setShortcut(QKeySequence::Quit);
@@ -129,6 +137,111 @@ void MainWindow::newDocument()
     m_canvas->setDocument(m_document);
     setWindowTitle(tr("Compositor Qt - Untitled"));
     statusBar()->showMessage(tr("新建文档"), 3000);
+}
+
+void MainWindow::openDocument()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open Image"), QString(),
+        tr("Images (*.psd *.png *.jpg *.jpeg *.bmp);;PSD (*.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
+    if (path.isEmpty())
+        return;
+
+    // 读文件字节
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Open Failed"), tr("无法打开文件: %1").arg(file.errorString()));
+        return;
+    }
+    const QByteArray data = file.readAll();
+
+    QImage image;
+    bool ok = false;
+    QString error;
+    if (path.endsWith(".psd", Qt::CaseInsensitive)) {
+        // PSD → 用 psd::Reader
+        const auto r = psd::Reader::read(data);
+        if (r.ok) {
+            image = r.composite;
+            ok = true;
+        } else {
+            error = r.error;
+        }
+    } else {
+        // 其它格式 → QImage
+        if (image.loadFromData(data))
+            ok = true;
+        else
+            error = tr("无法解码图片文件");
+    }
+
+    if (!ok) {
+        QMessageBox::warning(this, tr("Open Failed"), tr("打开失败: %1").arg(error));
+        return;
+    }
+    if (image.isNull()) {
+        QMessageBox::warning(this, tr("Open Failed"), tr("图像为空"));
+        return;
+    }
+    if (image.format() != QImage::Format_ARGB32)
+        image = image.convertToFormat(QImage::Format_ARGB32);
+
+    // 建立文档
+    clearDocument();
+    m_document = new Document(image.size(), this);
+    auto *layer = new Layer(tr("Background"), image.size());
+    layer->pixels() = image;
+    m_document->addLayer(layer);
+    m_document->setActiveLayer(layer);
+    m_canvas->setDocument(m_document);
+    m_currentPath = path;
+    setWindowTitle(tr("Compositor Qt - %1").arg(QFileInfo(path).fileName()));
+    statusBar()->showMessage(tr("已打开 %1").arg(path), 3000);
+}
+
+void MainWindow::saveDocument()
+{
+    if (!m_document) {
+        statusBar()->showMessage(tr("没有可保存的文档"), 3000);
+        return;
+    }
+    QString path = m_currentPath;
+    if (path.isEmpty()) {
+        path = QFileDialog::getSaveFileName(
+            this, tr("Save Image"), QString(),
+            tr("PSD (*.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
+        if (path.isEmpty())
+            return;
+    }
+
+    bool ok = false;
+    QString error;
+    if (path.endsWith(".psd", Qt::CaseInsensitive)) {
+        const QByteArray bytes = psd::writePsd(*m_document, {}, &error);
+        if (!bytes.isEmpty()) {
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly)) {
+                ok = (f.write(bytes) == bytes.size());
+                if (!ok) error = f.errorString();
+            } else {
+                error = f.errorString();
+            }
+        }
+    } else {
+        // PNG/JPEG/BMP 用 QImage 渲染合成图后保存
+        PainterRenderer renderer;
+        const QImage composite = renderer.render(*m_document);
+        ok = composite.save(path);
+        if (!ok) error = tr("无法保存图片");
+    }
+
+    if (ok) {
+        m_currentPath = path;
+        setWindowTitle(tr("Compositor Qt - %1").arg(QFileInfo(path).fileName()));
+        statusBar()->showMessage(tr("已保存 %1").arg(path), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Save Failed"), tr("保存失败: %1").arg(error));
+    }
 }
 
 void MainWindow::clearDocument()
