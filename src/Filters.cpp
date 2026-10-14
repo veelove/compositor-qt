@@ -1,6 +1,7 @@
 #include "Filters.h"
 
 #include <QtGlobal>
+#include <QtMath>
 #include <QVector>
 #include <algorithm>
 #include <cmath>
