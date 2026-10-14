@@ -71,4 +71,5 @@ ctest --test-dir build --output-on-failure
 - [x] PSD 导出（扁平化 RGB/ARGB + PackBits 写盘 + round-trip 验证）
 - [x] 文件 IO 打通：File→Open（PSD/PNG/JPEG）+ Save（PSD/PNG/JPEG）+ 标题栏路径
 - [x] 图层树 UI：右侧面板（增/删/上移/下移/显隐/改名/选中），与撤销栈联动
-- [x] 滤镜直译：Gaussian Blur（可分离 1D 高斯）/ Motion Blur（角度拖尾）/ Add Noise（确定性 LCG）/ Vignette（径向衰减） + 4 单测  ← 当前
+- [x] 滤镜直译：Gaussian Blur（可分离 1D 高斯）/ Motion Blur（角度拖尾）/ Add Noise（确定性 LCG）/ Vignette（径向衰减） + 4 单测
+- [x] 滤镜 UI 接入：Filter 菜单（4 项）+ 参数对话框（FiltersUi）+ FilterCommand 撤销命令 + 1 单测  ← 当前
