@@ -230,4 +230,96 @@ void applyInvert(QImage &dest)
     }
 }
 
+// ============================== Curves ==============================
+namespace {
+
+// 估算一个区间端点的导数(Fritsch-Carlson 切线,直译自上游 Swift)
+// 返回值用于 [p[i], p[i+1]] 之间的三次曲线
+double curveSlope(const QVector<CurvePoint> &p, int i)
+{
+    const int n = p.size();
+    if (n < 2) return 0;
+    // 区段斜率
+    auto segSlope = [&](int j) -> double {
+        return (p[j+1].y - p[j].y) / (p[j+1].x - p[j].x);
+    };
+    if (i <= 0)          return segSlope(0);
+    if (i >= n - 1)     return segSlope(n - 2);
+    const double d0 = segSlope(i - 1);
+    const double d1 = segSlope(i);
+    // 保形条件:如果相邻区段斜率变号,导数设为 0,避免过冲
+    if (d0 * d1 <= 0) return 0;
+    // Fritsch-Carlson 调和平均
+    return 2.0 / (1.0 / d0 + 1.0 / d1);
+}
+
+} // namespace
+
+QVector<int> buildCurveLut(const QVector<CurvePoint> &points)
+{
+    QVector<int> lut(256, 0);
+    if (points.size() < 2)
+        return lut;
+    // 保证端点固定为 (0,0) 和 (255,255),即使上游没传
+    QVector<CurvePoint> p = points;
+    if (p.first().x > 0)
+        p.prepend({0.0, 0.0});
+    if (p.last().x < 255)
+        p.append({255.0, 255.0});
+    // 强制端点
+    p.first() = {0.0, 0.0};
+    p.last()  = {255.0, 255.0};
+
+    // 对每个输出字节 0..255,找到包含它的区间并计算三次 Hermite
+    int seg = 0;
+    for (int x = 0; x <= 255; ++x) {
+        // 推进到包含 x 的区间
+        while (seg < p.size() - 1 && p[seg + 1].x < x)
+            ++seg;
+        const CurvePoint &a = p[seg];
+        const CurvePoint &b = p[seg + 1];
+        const double h = b.x - a.x;
+        if (h <= 0) { lut[x] = qBound<int>(0, int(a.y), 255); continue; }
+        const double t = qBound(0.0, (x - a.x) / h, 1.0);
+        const double m0 = curveSlope(p, seg);
+        const double m1 = curveSlope(p, seg + 1);
+        const double t2 = t * t;
+        const double t3 = t2 * t;
+        // 标准三次 Hermite 基函数
+        const double h00 =  2 * t3 - 3 * t2 + 1;
+        const double h10 =       t3 - 2 * t2 + t;
+        const double h01 = -2 * t3 + 3 * t2;
+        const double h11 =       t3 -     t2;
+        const double y = h00 * a.y + h10 * h * m0
+                       + h01 * b.y + h11 * h * m1;
+        lut[x] = qBound<int>(0, int(std::lround(y)), 255);
+    }
+    return lut;
+}
+
+void applyCurves(QImage &dest, const CurvesParams &params)
+{
+    if (dest.isNull() || dest.format() != QImage::Format_ARGB32)
+        return;
+    if (params.points.size() < 2)
+        return;
+    // identity 曲线(0,0)→(255,255)直接返回
+    if (params.points.size() == 2
+        && qFuzzyCompare(params.points[0].x, 0.0) && qFuzzyCompare(params.points[0].y, 0.0)
+        && qFuzzyCompare(params.points[1].x, 255.0) && qFuzzyCompare(params.points[1].y, 255.0))
+        return;
+
+    const QVector<int> lut = buildCurveLut(params.points);
+    for (int y = 0; y < dest.height(); ++y) {
+        for (int x = 0; x < dest.width(); ++x) {
+            const QRgb px = dest.pixel(x, y);
+            const int a  = qAlpha(px);
+            const int r  = lut.at(qRed(px));
+            const int g  = lut.at(qGreen(px));
+            const int b  = lut.at(qBlue(px));
+            dest.setPixel(x, y, qRgba(r, g, b, a));
+        }
+    }
+}
+
 } // namespace adj

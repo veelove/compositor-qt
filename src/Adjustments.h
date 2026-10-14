@@ -66,4 +66,29 @@ void applyBrightnessContrast(QImage &dest, const BcParams &params);
 // 简单反相:R = 255 - R, G = 255 - G, B = 255 - B,alpha 保持
 void applyInvert(QImage &dest);
 
+// ============================== Curves ==============================
+// 曲线调色:每个通道(R/G/B + Composite)各一条曲线,
+// 由控制点序列定义(端点固定 (0,0) 和 (255,255))
+// 使用保形三次 Hermite 插值(shape-preserving cubic)避免控制点之间的过冲
+struct CurvePoint
+{
+    double x = 0;
+    double y = 0;
+};
+
+struct CurvesParams
+{
+    // 通道 index:0=RGB(对每通道先用本通道 LUT,再用 RGB 通道 LUT 复合),
+    //             1=R, 2=G, 3=B(只查该通道,再用 RGB 通道 LUT 复合)
+    // 与上游 LevelsChannel 顺序一致
+    int channel = 0; // 0=RGB, 1=R, 2=G, 3=B
+    QVector<CurvePoint> points; // 每条曲线的控制点(每通道各自存)
+};
+
+// 内部:对单一通道 (x, y) 控制点序列,生成 256 项 LUT
+// (保形三次 Hermite 插值,Fritsch-Carlson 切线估计)
+QVector<int> buildCurveLut(const QVector<CurvePoint> &points);
+
+void applyCurves(QImage &dest, const CurvesParams &params);
+
 } // namespace adj

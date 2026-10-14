@@ -27,6 +27,9 @@ private slots:
     void adjHsvHueShift();
     void adjBrightnessContrast();
     void adjInvert();
+    void adjCurvesIdentity();
+    void adjCurvesGamma();
+    void adjCurvesHighlightClamp();
 };
 
 void TestDocument::addRemoveLayer()
@@ -312,6 +315,65 @@ void TestDocument::adjInvert()
 
     // Alpha 保持:完全不透明图像的 alpha 不变
     QCOMPARE(img.pixelColor(0, 0).alpha(), 255);
+}
+
+void TestDocument::adjCurvesIdentity()
+{
+    // identity 曲线 (0,0)→(255,255) 像素不变
+    QImage img = makeGray4();
+    QImage before = img;
+    adj::CurvesParams p;
+    p.points = {{0, 0}, {255, 255}};
+    adj::applyCurves(img, p);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            QCOMPARE(img.pixel(x, y), before.pixel(x, y));
+}
+
+void TestDocument::adjCurvesGamma()
+{
+    // 曲线 (0,0)→(128,100)→(255,255) ≈ gamma=0.8 左右(中间值上抬)
+    // 端点固定,LUT[0]=0, LUT[255]=255,LUT[128]≈100
+    {
+        const QVector<adj::CurvePoint> pts = {{0, 0}, {128, 100}, {255, 255}};
+        const QVector<int> lut = adj::buildCurveLut(pts);
+        QCOMPARE(lut.at(0), 0);
+        QCOMPARE(lut.at(255), 255);
+        // 中点 100:由于 shape-preserving 插值,实际值会略低于线性 100(因端点斜率非 1)
+        // 只检查大方向:LUT[128] 在 90..110 之间
+        QVERIFY2(lut.at(128) >= 90 && lut.at(128) <= 110,
+                 qPrintable(QString("got %1").arg(lut.at(128))));
+    }
+    // 端点缺失(用户只给中间点)→ 自动补 (0,0) (255,255)
+    {
+        const QVector<adj::CurvePoint> pts = {{100, 200}}; // 只有中间点
+        const QVector<int> lut = adj::buildCurveLut(pts);
+        QCOMPARE(lut.at(0), 0);
+        QCOMPARE(lut.at(255), 255);
+        // 100 附近应该接近 200
+        QVERIFY2(lut.at(100) >= 195 && lut.at(100) <= 205,
+                 qPrintable(QString("got %1").arg(lut.at(100))));
+    }
+}
+
+void TestDocument::adjCurvesHighlightClamp()
+{
+    // 高光过曝钳位:(0,0)→(200,250)→(255,255) → LUT[255]=255(不超),LUT[200]≈250
+    const QVector<adj::CurvePoint> pts = {{0, 0}, {200, 250}, {255, 255}};
+    const QVector<int> lut = adj::buildCurveLut(pts);
+    QCOMPARE(lut.at(255), 255);
+    // 200 附近:应该接近 250,允许 ±5 误差(三次插值不一定精确)
+    QVERIFY2(lut.at(200) >= 245 && lut.at(200) <= 255,
+             qPrintable(QString("got %1").arg(lut.at(200))));
+    // 整张图应用:128 → ~160
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixelColor(0, 0, QColor(128, 128, 128));
+    adj::CurvesParams p;
+    p.points = pts;
+    adj::applyCurves(img, p);
+    const int r = img.pixelColor(0, 0).red();
+    // LUT[128] 在两点之间平滑插值,大概 150..180(曲线下凹)
+    QVERIFY2(r >= 140 && r <= 190, qPrintable(QString("got %1").arg(r)));
 }
 
 QTEST_MAIN(TestDocument)
