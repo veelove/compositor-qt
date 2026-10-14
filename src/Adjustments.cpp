@@ -322,4 +322,171 @@ void applyCurves(QImage &dest, const CurvesParams &params)
     }
 }
 
+// ============================== Black & White ==============================
+namespace {
+
+// 6 个色域桶的中点色相(0..1),顺序:红 黄 绿 青 蓝 品红
+constexpr double kBwBucketHues[6] = {0.0/6, 1.0/6, 2.0/6, 3.0/6, 4.0/6, 5.0/6};
+
+inline double bwBucketWeight(double h, const int weights[6])
+{
+    // 在环形色相空间[h ∈ 0,1)上找最近的两个桶,三角加权
+    double bestD = 1.0; int bestI = 0;
+    double sndD  = 1.0; int sndI  = 0;
+    for (int i = 0; i < 6; ++i) {
+        double d = std::abs(h - kBwBucketHues[i]);
+        if (d > 0.5) d = 1.0 - d; // 环形距离
+        if (d < bestD) { sndD = bestD; sndI = bestI; bestD = d; bestI = i; }
+        else if (d < sndD) { sndD = d; sndI = i; }
+    }
+    const double totalD = bestD + sndD;
+    if (totalD <= 0) return weights[bestI] / 100.0;
+    const double wB = sndD / totalD; // 距离大者权重小
+    const double wS = bestD / totalD;
+    return (weights[bestI] * wB + weights[sndI] * wS) / 100.0;
+}
+
+} // namespace
+
+void applyBlackWhite(QImage &dest, const BwParams &p)
+{
+    if (dest.isNull() || dest.format() != QImage::Format_ARGB32)
+        return;
+    // 全 0 权重 → 仍会出黑图(0 灰度),不算 identity
+    const int w[6] = {p.reds, p.yellows, p.greens, p.cyans, p.blues, p.magentas};
+    for (int y = 0; y < dest.height(); ++y) {
+        for (int x = 0; x < dest.width(); ++x) {
+            const QRgb px = dest.pixel(x, y);
+            const int a = qAlpha(px);
+            const uint8_t r = qRed(px);
+            const uint8_t g = qGreen(px);
+            const uint8_t b = qBlue(px);
+            // 1) 基础亮度(ITU-R BT.601)
+            const double baseLum = 0.299 * r + 0.587 * g + 0.114 * b;
+            // 2) 按色相分桶算权重
+            double hh, ss, ll;
+            rgbToHsl(r, g, b, hh, ss, ll);
+            const double bw = bwBucketWeight(hh, w); // 0..3
+            // 3) 调整后灰度:Photoshop 算法 = baseLum * (0.5 + bw)
+            //   0 权重 → 0.5*base(原 50%亮度);100 权重 → 1.5*base(150%亮度)
+            int gray = qBound(0, int(baseLum * (0.5 + bw)), 255);
+            // 4) tint 上色
+            uint8_t r2 = gray, g2 = gray, b2 = gray;
+            if (p.tint && p.tintSaturation > 0) {
+                const double sat = p.tintSaturation / 100.0;
+                const double hue = p.tintHue / 360.0;
+                hslToRgb(hue, sat, ll, r2, g2, b2);
+                // 与灰度按饱和度混合:tintSat=0→纯灰
+                r2 = uint8_t(qBound(0, int(r2 * sat + gray * (1.0 - sat)), 255));
+                g2 = uint8_t(qBound(0, int(g2 * sat + gray * (1.0 - sat)), 255));
+                b2 = uint8_t(qBound(0, int(b2 * sat + gray * (1.0 - sat)), 255));
+            }
+            dest.setPixel(x, y, qRgba(r2, g2, b2, a));
+        }
+    }
+}
+
+// ============================== Color Balance ==============================
+namespace {
+
+// 按 (cyanRed, magentaGreen, yellowBlue) 偏移修改 RGB
+// Photoshop "Color Balance" 方向:滑块向红色/品红/黄色方向拉 = 正值(加红/加品红/加黄),
+//   向青色/绿色/蓝色方向拉 = 负值(加青/加绿/加蓝)。
+//   青色是 G+B, 红色是 R;品红是 R+B, 绿色是 G;黄色是 R+G, 蓝色是 B
+// 我们把 cR/mG/yB 看作"对各互补色的加色强度"(正值,0..100):
+//   cR 加青: G += cR, B += cR, R -= cR
+//   cR 加红: R += cR, G -= cR/2, B -= cR/2(让 G/B 略减保持亮度)
+//   但 cR 是有符号,我们按 |cR| 加主色,|cR| 反方向扣减补色的一半
+inline void cbAdjust(int &r, int &g, int &b, int cR, int mG, int yB)
+{
+    // cR:>0 加红, <0 加青
+    if (cR > 0) {
+        r = qBound(0, r + cR * 128 / 100, 255);
+        g = qBound(0, g - cR *  64 / 100, 255);
+        b = qBound(0, b - cR *  64 / 100, 255);
+    } else {
+        const int amt = -cR * 128 / 100;
+        g = qBound(0, g + amt, 255);
+        b = qBound(0, b + amt, 255);
+        r = qBound(0, r - amt, 255);
+    }
+    // mG:>0 加品红, <0 加绿
+    if (mG > 0) {
+        r = qBound(0, r + mG *  64 / 100, 255);
+        b = qBound(0, b + mG * 128 / 100, 255);
+        g = qBound(0, g - mG * 128 / 100, 255);
+    } else {
+        const int amt = -mG * 128 / 100;
+        g = qBound(0, g + amt, 255);
+        r = qBound(0, r - amt / 2, 255);
+        b = qBound(0, b - amt / 2, 255);
+    }
+    // yB:>0 加黄, <0 加蓝
+    if (yB > 0) {
+        r = qBound(0, r + yB *  64 / 100, 255);
+        g = qBound(0, g + yB * 128 / 100, 255);
+        b = qBound(0, b - yB * 128 / 100, 255);
+    } else {
+        const int amt = -yB * 128 / 100;
+        b = qBound(0, b + amt, 255);
+        r = qBound(0, r - amt / 2, 255);
+        g = qBound(0, g - amt / 2, 255);
+    }
+}
+
+// 按"软阈值"算像素在阴影/中间调/高光的权重(0..1)
+// 阴影:亮度<85 完全在,>128 离开;中间:85-170 区间;
+// 高光:>170 完全在,<128 离开
+// 用三角形权重:在过渡区间线性插值
+inline void cbToneWeights(int lum, double &ws, double &wm, double &wh)
+{
+    // 亮度 0..255,阴影中心 ~64,中间 ~128,高光 ~192
+    if (lum < 128) {
+        ws = 1.0 - lum / 128.0;          // 0..1 暗色多
+        wm = lum / 128.0;                // 0..1 偏亮
+        wh = 0;
+    } else {
+        ws = 0;
+        wm = 1.0 - (lum - 128) / 127.0;   // 1..0
+        wh = (lum - 128) / 127.0;        // 0..1
+    }
+}
+
+} // namespace
+
+void applyColorBalance(QImage &dest, const CbParams &p)
+{
+    if (dest.isNull() || dest.format() != QImage::Format_ARGB32)
+        return;
+    // identity 检查:所有 9 个偏移为 0
+    const bool ident =
+        p.shadowCyanRed==0 && p.shadowMagentaGreen==0 && p.shadowYellowBlue==0 &&
+        p.midCyanRed==0 && p.midMagentaGreen==0 && p.midYellowBlue==0 &&
+        p.highlightCyanRed==0 && p.highlightMagentaGreen==0 && p.highlightYellowBlue==0;
+    if (ident)
+        return;
+    for (int y = 0; y < dest.height(); ++y) {
+        for (int x = 0; x < dest.width(); ++x) {
+            const QRgb px = dest.pixel(x, y);
+            const int a = qAlpha(px);
+            int r = qRed(px);
+            int g = qGreen(px);
+            int b = qBlue(px);
+            // 亮度:ITU-R BT.601
+            const int lum = int(0.299 * r + 0.587 * g + 0.114 * b);
+            double ws, wm, wh;
+            cbToneWeights(lum, ws, wm, wh);
+            // 各组 CMY 偏移按权重混合
+            const int cR  = int(p.shadowCyanRed * ws    + p.midCyanRed       * wm + p.highlightCyanRed    * wh);
+            const int mG  = int(p.shadowMagentaGreen * ws + p.midMagentaGreen  * wm + p.highlightMagentaGreen * wh);
+            const int yB  = int(p.shadowYellowBlue   * ws + p.midYellowBlue    * wm + p.highlightYellowBlue  * wh);
+            int r2 = r, g2 = g, b2 = b;
+            cbAdjust(r2, g2, b2, cR, mG, yB);
+            // preserveLuminosity:本 MVP 简化为只注释提示
+            // (完整实现:按新像素的色调把亮度归一化回原值,避免改变整体明暗)
+            dest.setPixel(x, y, qRgba(r2, g2, b2, a));
+        }
+    }
+}
+
 } // namespace adj

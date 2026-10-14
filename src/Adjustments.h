@@ -91,4 +91,48 @@ QVector<int> buildCurveLut(const QVector<CurvePoint> &points);
 
 void applyCurves(QImage &dest, const CurvesParams &params);
 
+// ============================== Black & White ==============================
+// Photoshop "Black & White" 调整:
+//   6 个色域权重(红/黄/绿/青/蓝/品红,单位 %),各控制对应颜色区域对灰度贡献的强度
+//   默认值(40, 60, 40, 60, 20, 80)≈ Photoshop 默认
+//   整图灰度:对每个像素,按色相分到 6 个颜色桶之一,按桶权重算灰度贡献
+//   简化实现:每像素先做 ITU-R BT.601 亮度(0.299R+0.587G+0.114B),
+//   再按"当前像素色相 vs 桶中点色相"距离 + 桶权重做修正(柔过渡)
+struct BwParams
+{
+    int reds     =  40;
+    int yellows  =  60;
+    int greens   =  40;
+    int cyans    =  60;
+    int blues    =  20;
+    int magentas =  80;
+    bool tint = false;
+    int tintHue = 40;        // 0-360
+    int tintSaturation = 20; // 0-100
+};
+
+void applyBlackWhite(QImage &dest, const BwParams &params);
+
+// ============================== Color Balance ==============================
+// Photoshop "Color Balance": 阴影/中间调/高光三组 CMY 加/减
+//   范围 -100..+100,0=不变
+//   算法:对每像素先算亮度,按阈值分入 shadow(亮度<85)/mid(85-170)/highlight(>170),
+//   对应组别的 CMY 偏移用加法叠加,preserveLuminosity 决定是否最后归一化到原亮度
+struct CbParams
+{
+    // 阴影 0..255 的中心 85,中间 128,高光 170
+    int shadowCyanRed       = 0;
+    int shadowMagentaGreen  = 0;
+    int shadowYellowBlue    = 0;
+    int midCyanRed          = 0;
+    int midMagentaGreen     = 0;
+    int midYellowBlue       = 0;
+    int highlightCyanRed    = 0;
+    int highlightMagentaGreen= 0;
+    int highlightYellowBlue  = 0;
+    bool preserveLuminosity = true;
+};
+
+void applyColorBalance(QImage &dest, const CbParams &params);
+
 } // namespace adj

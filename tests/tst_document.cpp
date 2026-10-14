@@ -35,6 +35,10 @@ private slots:
     void geomResize();
     void geomRotate90();
     void geomRotate45();
+    void adjBlackWhiteDefault();
+    void adjBlackWhiteTint();
+    void adjColorBalanceIdentity();
+    void adjColorBalanceShift();
 };
 
 void TestDocument::addRemoveLayer()
@@ -471,6 +475,93 @@ void TestDocument::geomRotate45()
     const QImage zero = geom::rotateArbitrary(img, 0.0);
     QCOMPARE(zero.size(), img.size());
     QCOMPARE(zero.pixelColor(0, 0), img.pixelColor(0, 0));
+}
+
+// ============================== Black & White ==============================
+void TestDocument::adjBlackWhiteDefault()
+{
+    // 纯色 → 应是统一灰度(红 255 偏黄绿桶,绿 255 偏绿桶,蓝 255 偏蓝桶)
+    // 默认权重:红 40 / 黄 60 / 绿 40 / 青 60 / 蓝 20 / 品红 80
+    // 纯红 (255,0,0) → baseLum = 0.299*255 = 76.2;红桶权重 40% 主导 → 灰度 ≈ 76*0.9 ≈ 68
+    {
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(255, 0, 0));
+        adj::BwParams p; // 默认权重
+        adj::applyBlackWhite(img, p);
+        const QColor out = img.pixelColor(0, 0);
+        // R/G/B 必须相等(灰度)
+        QCOMPARE(out.red(), out.green());
+        QCOMPARE(out.green(), out.blue());
+        // 灰度应在 50..100 之间(具体值依赖权重插值)
+        const int gray = out.red();
+        QVERIFY2(gray >= 50 && gray <= 110, qPrintable(QString("got %1").arg(gray)));
+    }
+    // 灰度(128,128,128) → 应保持中性灰
+    {
+        QImage img(1, 1, QImage::Format_ARGB32);
+        img.setPixelColor(0, 0, QColor(128, 128, 128));
+        adj::BwParams p;
+        adj::applyBlackWhite(img, p);
+        // 128 的灰度经(0.5 + bw)缩放,bw 取决于其色相(0,饱和度 0),
+        // 任何色相下 bw 都接近 0(三个色相等权),gray ≈ 128*0.5 = 64
+        // 实际:128 的灰度色相无定义,落到第一桶 (红),bw=0.4
+        // gray = 128 * (0.5 + 0.4) = 115
+        // 验证:输出是灰度(三通道相等)
+        const QColor out = img.pixelColor(0, 0);
+        QCOMPARE(out.red(), out.green());
+        QCOMPARE(out.green(), out.blue());
+    }
+}
+
+void TestDocument::adjBlackWhiteTint()
+{
+    // 灰度 + sepia tint(40° 色相,20% 饱和)
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixelColor(0, 0, QColor(128, 128, 128));
+    adj::BwParams p;
+    p.tint = true;
+    p.tintHue = 40;       // 暖色
+    p.tintSaturation = 20; // 20% 饱和
+    adj::applyBlackWhite(img, p);
+    const QColor out = img.pixelColor(0, 0);
+    // 暖色(40°) = R 高 B 低,所以 R 应 > B
+    QVERIFY2(out.red() > out.blue(), qPrintable(QString("got R=%1 B=%2").arg(out.red()).arg(out.blue())));
+}
+
+// ============================== Color Balance ==============================
+void TestDocument::adjColorBalanceIdentity()
+{
+    // 全 0 偏移 → 不变
+    QImage img = makeGray4();
+    QImage before = img;
+    adj::CbParams p;
+    adj::applyColorBalance(img, p);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            QCOMPARE(img.pixel(x, y), before.pixel(x, y));
+}
+
+void TestDocument::adjColorBalanceShift()
+{
+    // 把整张灰度图加青(cyanRed=-100,阴影组):
+    //   - cR=-100 走"加青"分支
+    //   - (0,0) 亮度 0 → 全在阴影组,ws=1
+    //   - 黑色像素(0,0,0) → r=0, g=0+128=128, b=0+128=128, 钳位后(0,128,128)≈青色
+    QImage img = makeGray4();
+    adj::CbParams p;
+    p.shadowCyanRed = -100;   // 加青
+    p.shadowMagentaGreen = 0;
+    p.shadowYellowBlue = 0;
+    adj::applyColorBalance(img, p);
+    // (0,0)=全黑 → 应变成青
+    QCOMPARE(img.pixelColor(0, 0).red(), 0);
+    QCOMPARE(img.pixelColor(0, 0).green(), 128);
+    QCOMPARE(img.pixelColor(0, 0).blue(), 128);
+    // (1,1)=全白,亮度 255 → cbToneWeights 走 wm=0/wh=1(中间组 0 权重,只高光组 1)
+    //   shadowCyanRed 权重 = 0 → 不动
+    QCOMPARE(img.pixelColor(1, 1).red(), 255);
+    QCOMPARE(img.pixelColor(1, 1).green(), 255);
+    QCOMPARE(img.pixelColor(1, 1).blue(), 255);
 }
 
 QTEST_MAIN(TestDocument)
