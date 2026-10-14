@@ -33,6 +33,8 @@ jobs:
         shell: bash
         run: |
           cd build
+          # tst_document 需要 Qt DLL,测试前先部署
+          "$QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw tst_document.exe
           echo "=== run tst_document ==="
           ./tst_document.exe
           echo "=== end (exit $?) ==="
