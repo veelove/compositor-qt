@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include "Adjustments.h"
 #include "Document.h"
 #include "Layer.h"
 #include "PainterRenderer.h"
@@ -18,6 +19,12 @@ private slots:
     void rendererComposites();
     void psdPackBits();
     void psdMagicAndRejection();
+    void adjLevelsIdentity();
+    void adjLevelsBrighten();
+    void adjLevelsInvert();
+    void adjLevelsGamma();
+    void adjHsvSaturate();
+    void adjHsvHueShift();
 };
 
 void TestDocument::addRemoveLayer()
@@ -139,6 +146,110 @@ void TestDocument::psdMagicAndRejection()
     const auto r = psd::Reader::read(QByteArray("junk"));
     QVERIFY(!r.ok);
     QVERIFY(!r.error.isEmpty());
+}
+
+// ============================== Adjustments ==============================
+static QImage makeGray4()
+{
+    // 2x2 灰阶图像:[0, 85, 170, 255] 用于快速算术校验
+    QImage img(2, 2, QImage::Format_ARGB32);
+    img.setPixelColor(0, 0, QColor(0, 0, 0));
+    img.setPixelColor(1, 0, QColor(85, 85, 85));
+    img.setPixelColor(0, 1, QColor(170, 170, 170));
+    img.setPixelColor(1, 1, QColor(255, 255, 255));
+    return img;
+}
+
+void TestDocument::adjLevelsIdentity()
+{
+    QImage img = makeGray4();
+    QImage before = img;
+
+    adj::LevelsParams p;
+    // 默认值(全部 identity)应原样输出
+    adj::applyLevels(img, p);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            QCOMPARE(img.pixel(x, y), before.pixel(x, y));
+}
+
+void TestDocument::adjLevelsBrighten()
+{
+    // black=50, white=255, gamma=1 → 50 以下变黑,其他线性保留
+    QImage img = makeGray4();
+    adj::LevelsParams p;
+    p.rgbRange.black = 50;
+    adj::applyLevels(img, p);
+    // (0,0)=0 → 变 0
+    QCOMPARE(img.pixelColor(0, 0).red(), 0);
+    // (1,1)=255 → 不变
+    QCOMPARE(img.pixelColor(1, 1).red(), 255);
+    // (1,0)=85 → 公式: (85-50)/(255-50) = 0.1707 → *255 ≈ 43
+    // 上游 Swift 用 (value*255 - black)/(white - black) 同样公式,容差 2
+    const int newVal = img.pixelColor(1, 0).red();
+    QVERIFY2(newVal >= 41 && newVal <= 45, qPrintable(QString("got %1").arg(newVal)));
+}
+
+void TestDocument::adjLevelsInvert()
+{
+    // outputBlack=255, outputWhite=0 → 颜色反转
+    QImage img = makeGray4();
+    adj::LevelsParams p;
+    p.rgbRange.outputBlack = 255;
+    p.rgbRange.outputWhite = 0;
+    adj::applyLevels(img, p);
+    // 0 → 255
+    QCOMPARE(img.pixelColor(0, 0).red(), 255);
+    // 255 → 0
+    QCOMPARE(img.pixelColor(1, 1).red(), 0);
+    // 85 → 255 - 85 ≈ 170
+    QCOMPARE(img.pixelColor(1, 0).red(), 255 - 85);
+}
+
+void TestDocument::adjLevelsGamma()
+{
+    // gamma=0.5 → 中间调应比原值更亮
+    QImage img = makeGray4();
+    adj::LevelsParams p;
+    p.rgbRange.gamma = 0.5;
+    adj::applyLevels(img, p);
+    // 128 应该变成 sqrt(128/255)*255 ≈ 128(无变化) — 改用 100 来测
+    // 100 → 100/255=0.392, ^0.5 = 0.626, *255 = 159
+    // 重新构造一个 100 灰度的图
+    QImage img2(1, 1, QImage::Format_ARGB32);
+    img2.setPixelColor(0, 0, QColor(100, 100, 100));
+    adj::applyLevels(img2, p);
+    const int r = img2.pixelColor(0, 0).red();
+    QVERIFY2(r >= 156 && r <= 162, qPrintable(QString("got %1").arg(r)));
+}
+
+void TestDocument::adjHsvSaturate()
+{
+    // 半饱和 → 期望 像素饱和度增加
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixelColor(0, 0, QColor(128, 64, 192)); // 偏蓝
+    const int origR = img.pixelColor(0, 0).red();
+    const int origB = img.pixelColor(0, 0).blue();
+    adj::HsvParams p;
+    p.saturation = 50; // +50%
+    adj::applyHsv(img, p);
+    // 饱和后 B 应更接近原 B,R 应更接近 0(远离蓝)
+    // 不做精确数值,只检查趋势
+    const int newB = img.pixelColor(0, 0).blue();
+    QVERIFY(newB > origB || newB == 255);
+    Q_UNUSED(origR);
+}
+
+void TestDocument::adjHsvHueShift()
+{
+    // 纯红→+120 度色相 → 期望绿色分量变大
+    QImage img(1, 1, QImage::Format_ARGB32);
+    img.setPixelColor(0, 0, QColor(255, 0, 0));
+    adj::HsvParams p;
+    p.hue = 120; // +120 度
+    adj::applyHsv(img, p);
+    const QColor out = img.pixelColor(0, 0);
+    QVERIFY(out.green() > 200);
 }
 
 QTEST_MAIN(TestDocument)
