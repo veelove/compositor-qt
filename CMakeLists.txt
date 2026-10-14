@@ -9,27 +9,39 @@ project(CompositorQt
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Test)
 
 qt_standard_project_setup()
 
+# ---- 核心库:文档/图层/渲染/撤销(应用与测试共用) ----
+qt_add_library(CompositorCore STATIC
+    src/Layer.h src/Layer.cpp
+    src/Document.h src/Document.cpp
+    src/Renderer.h
+    src/PainterRenderer.h src/PainterRenderer.cpp
+    src/UndoCommands.h src/UndoCommands.cpp
+)
+target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(CompositorCore PUBLIC Qt6::Widgets)
+
+# ---- 应用 ----
 qt_add_executable(CompositorQt
     src/main.cpp
-    src/MainWindow.h
-    src/MainWindow.cpp
-    src/CanvasView.h
-    src/CanvasView.cpp
+    src/MainWindow.h src/MainWindow.cpp
+    src/CanvasView.h src/CanvasView.cpp
 )
-
-target_link_libraries(CompositorQt PRIVATE Qt6::Widgets)
+target_link_libraries(CompositorQt PRIVATE CompositorCore Qt6::Widgets)
 
 # Windows 上作为 GUI 程序运行(不弹出控制台窗口)
 if(WIN32)
     set_target_properties(CompositorQt PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
-# 基础安装规则(便于 CI 用 windeployqt 打包)
 include(GNUInstallDirs)
-install(TARGETS CompositorQt
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+install(TARGETS CompositorQt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# ---- 测试 ----
+enable_testing()
+qt_add_executable(tst_document tests/tst_document.cpp)
+target_link_libraries(tst_document PRIVATE CompositorCore Qt6::Test)
+add_test(NAME tst_document COMMAND tst_document)

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QUndoStack>
 
 class CanvasView;
+class Document;
 class QLabel;
 
 class MainWindow : public QMainWindow
@@ -10,6 +12,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -18,8 +21,12 @@ private:
     void createActions();
     void createMenus();
     void createStatusBar();
+    void newDocument();
+    void clearDocument();
 
     CanvasView *m_canvas = nullptr;
+    Document *m_document = nullptr;
+    QUndoStack m_undoStack;
     QLabel *m_zoomLabel = nullptr;
     QLabel *m_cursorLabel = nullptr;
 

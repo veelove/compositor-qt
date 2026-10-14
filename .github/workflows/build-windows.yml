@@ -29,6 +29,10 @@ jobs:
         shell: bash
         run: cmake --build build
 
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build --output-on-failure
+
       - name: Package runtime (smoke)
         shell: bash
         run: |
