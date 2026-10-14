@@ -6,6 +6,7 @@
 #include "Layer.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
+#include "PsdWriter.h"
 #include "RawProvider.h"
 #include "UndoCommands.h"
 #include "VisionProvider.h"
@@ -46,6 +47,8 @@ private slots:
     void adjExposureGamma();
     void spikeRawExtensions();
     void spikeVisionStub();
+    void psdRoundTripFlat();
+    void psdRoundTripGradient();
 };
 
 void TestDocument::addRemoveLayer()
@@ -677,6 +680,61 @@ void TestDocument::spikeVisionStub()
     QVERIFY(!stub.selectObject(img, QPoint(2, 2), mask, &err));
     QVERIFY(!err.isEmpty());
     QVERIFY(err.contains(QStringLiteral("StubVisionProvider")));
+}
+
+// ============================== PSD Export ==============================
+void TestDocument::psdRoundTripFlat()
+{
+    // 2x2 单色文档 → 导出 → 读回 → 尺寸与颜色一致
+    Document doc(QSize(2, 2));
+    auto *layer = new Layer(QStringLiteral("bg"), doc.size(), QColor(30, 60, 90));
+    doc.addLayer(layer);
+
+    QString err;
+    const QByteArray bytes = psd::writePsd(doc, {}, &err);
+    QVERIFY2(!bytes.isEmpty(), qPrintable(err));
+    QVERIFY(bytes.size() > 26);
+
+    // 魔数
+    QCOMPARE(bytes.left(4), QByteArrayLiteral("8BPS"));
+
+    // 用 Reader 读回
+    const auto r = psd::Reader::read(bytes);
+    QVERIFY2(r.ok, qPrintable(r.error));
+    QCOMPARE(r.header.canvasWidth, 2);
+    QCOMPARE(r.header.canvasHeight, 2);
+    QCOMPARE(r.header.colorMode, 3);
+    // 颜色应一致(允许 alpha 差异)
+    QCOMPARE(r.composite.pixelColor(0, 0).red(),   30);
+    QCOMPARE(r.composite.pixelColor(0, 0).green(), 60);
+    QCOMPARE(r.composite.pixelColor(0, 0).blue(),  90);
+}
+
+void TestDocument::psdRoundTripGradient()
+{
+    // 渐变文档 round-trip:尺寸一致 + 角落颜色一致
+    QImage img(8, 8, QImage::Format_ARGB32);
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            img.setPixelColor(x, y, QColor(x * 30, y * 30, 128));
+    Document doc(img.size());
+    auto *layer = new Layer(QStringLiteral("grad"), img.size());
+    layer->pixels() = img;  // 直接替换像素
+    doc.addLayer(layer);
+
+    QString err;
+    const QByteArray bytes = psd::writePsd(doc, {}, &err);
+    QVERIFY2(!bytes.isEmpty(), qPrintable(err));
+
+    const auto r = psd::Reader::read(bytes);
+    QVERIFY2(r.ok, qPrintable(r.error));
+    QCOMPARE(r.composite.size(), QSize(8, 8));
+    // 角落 (0,0) 红=0 蓝=128
+    QCOMPARE(r.composite.pixelColor(0, 0).red(),   0);
+    QCOMPARE(r.composite.pixelColor(0, 0).blue(),  128);
+    // 角落 (7,7) 红=210 绿=210
+    QCOMPARE(r.composite.pixelColor(7, 7).red(),  210);
+    QCOMPARE(r.composite.pixelColor(7, 7).green(),210);
 }
 
 QTEST_MAIN(TestDocument)

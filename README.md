@@ -67,5 +67,5 @@ ctest --test-dir build --output-on-failure
 - [x] CPU 调色算法：Black & White（6 色域权重 + tint 上色）+ Color Balance（阴影/中间调/高光 CMY 偏移）
 - [x] CPU 调色算法：Exposure（sRGB↔线性光+EV+offset+gamma LUT，Photo CIE）
 - [x] GPU 渲染器：GpuRenderer（OpenGL FBO + 简单 fragment shader + FBO readback），headless 自动 fallback 到 PainterRenderer
-- [x] RAW / 视觉智能 Spike：RawProvider.h（LibRaw 选型分析）+ VisionProvider.h（ONNX/OpenCV 选型分析）+ 扩展名识别 stub + StubVisionProvider  ← 当前
-- [ ] PSD 导出（保存回写）
+- [x] RAW / 视觉智能 Spike：RawProvider.h（LibRaw 选型分析）+ VisionProvider.h（ONNX/OpenCV 选型分析）+ 扩展名识别 stub + StubVisionProvider
+- [x] PSD 导出（扁平化 RGB/ARGB + PackBits 写盘 + round-trip 验证）  ← 当前
