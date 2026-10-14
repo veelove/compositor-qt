@@ -3,10 +3,13 @@
 #include <QMainWindow>
 #include <QUndoStack>
 
+#include <functional>
+
 class CanvasView;
 class Document;
 class LayersPanel;
 class QLabel;
+class QImage;
 
 class MainWindow : public QMainWindow
 {
@@ -27,6 +30,14 @@ private:
     void saveDocument();
     void clearDocument();
     void createDockPanels();
+
+    // 滤镜:在活动图层上执行变换并压入撤销栈(名称用于 Undo 菜单提示)
+    void applyFilterToActiveLayer(const QString &name,
+                                  const std::function<QImage(const QImage &)> &fn);
+    void filterGaussianBlur();
+    void filterMotionBlur();
+    void filterAddNoise();
+    void filterVignette();
 
     CanvasView *m_canvas = nullptr;
     LayersPanel *m_layersPanel = nullptr;
@@ -49,4 +60,9 @@ private:
     QAction *m_zoomOutAction = nullptr;
     QAction *m_zoomFitAction = nullptr;
     QAction *m_zoomActualAction = nullptr;
+    // Filter
+    QAction *m_filterGaussianAction = nullptr;
+    QAction *m_filterMotionAction = nullptr;
+    QAction *m_filterNoiseAction = nullptr;
+    QAction *m_filterVignetteAction = nullptr;
 };

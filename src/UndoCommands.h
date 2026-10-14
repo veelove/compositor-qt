@@ -7,6 +7,21 @@
 class Document;
 class Layer;
 
+// 滤镜:对整个图层像素应用变换(整层 before/after 快照),支持 undo/redo。
+class FilterCommand : public QUndoCommand
+{
+public:
+    FilterCommand(Layer *layer, const QImage &before, const QImage &after,
+                  const QString &name, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Layer *m_layer;
+    QImage m_before;
+    QImage m_after;
+};
+
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。
 class AddLayerCommand : public QUndoCommand
 {

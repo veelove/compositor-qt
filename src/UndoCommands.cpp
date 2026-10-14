@@ -21,6 +21,30 @@ void releaseOrphaned(LayerT *layer, Document *doc)
 } // namespace
 
 // ---------------------------------------------------------------------------
+// FilterCommand
+// ---------------------------------------------------------------------------
+FilterCommand::FilterCommand(Layer *layer, const QImage &before, const QImage &after,
+                             const QString &name, QUndoCommand *parent)
+    : QUndoCommand(name, parent)
+    , m_layer(layer)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void FilterCommand::undo()
+{
+    m_layer->pixels() = m_before;
+    emit m_layer->changed();
+}
+
+void FilterCommand::redo()
+{
+    m_layer->pixels() = m_after;
+    emit m_layer->changed();
+}
+
+// ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
 AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QUndoCommand *parent)

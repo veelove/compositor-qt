@@ -2,11 +2,14 @@
 
 #include "CanvasView.h"
 #include "Document.h"
+#include "Filters.h"
+#include "FiltersUi.h"
 #include "Layer.h"
 #include "LayersPanel.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
 #include "PsdWriter.h"
+#include "UndoCommands.h"
 
 #include <QAction>
 #include <QDockWidget>
@@ -97,6 +100,18 @@ void MainWindow::createActions()
     m_zoomActualAction = new QAction(tr("Actual Si&ze"), this);
     m_zoomActualAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_0));
     connect(m_zoomActualAction, &QAction::triggered, m_canvas, &CanvasView::zoomToActual);
+
+    m_filterGaussianAction = new QAction(tr("Gaussian &Blur..."), this);
+    connect(m_filterGaussianAction, &QAction::triggered, this, &MainWindow::filterGaussianBlur);
+
+    m_filterMotionAction = new QAction(tr("&Motion Blur..."), this);
+    connect(m_filterMotionAction, &QAction::triggered, this, &MainWindow::filterMotionBlur);
+
+    m_filterNoiseAction = new QAction(tr("Add &Noise..."), this);
+    connect(m_filterNoiseAction, &QAction::triggered, this, &MainWindow::filterAddNoise);
+
+    m_filterVignetteAction = new QAction(tr("&Vignette..."), this);
+    connect(m_filterVignetteAction, &QAction::triggered, this, &MainWindow::filterVignette);
 }
 
 void MainWindow::createMenus()
@@ -118,6 +133,13 @@ void MainWindow::createMenus()
     viewMenu->addSeparator();
     viewMenu->addAction(m_zoomFitAction);
     viewMenu->addAction(m_zoomActualAction);
+
+    QMenu *filterMenu = menuBar()->addMenu(tr("&Filter"));
+    filterMenu->addAction(m_filterGaussianAction);
+    filterMenu->addAction(m_filterMotionAction);
+    filterMenu->addSeparator();
+    filterMenu->addAction(m_filterNoiseAction);
+    filterMenu->addAction(m_filterVignetteAction);
 }
 
 void MainWindow::createStatusBar()
@@ -268,6 +290,64 @@ void MainWindow::clearDocument()
     delete m_document;
     m_document = nullptr;
     setWindowTitle(tr("Compositor Qt"));
+}
+
+void MainWindow::applyFilterToActiveLayer(const QString &name,
+                                          const std::function<QImage(const QImage &)> &fn)
+{
+    if (!m_document || !m_document->activeLayer()) {
+        statusBar()->showMessage(tr("没有活动图层"), 3000);
+        return;
+    }
+    Layer *layer = m_document->activeLayer();
+    const QImage before = layer->pixels();
+    if (before.isNull())
+        return;
+    const QImage after = fn(before);
+    if (after.isNull() || after == before)
+        return;
+    m_undoStack.push(new FilterCommand(layer, before, after, name));
+    statusBar()->showMessage(tr("已应用 %1").arg(name), 3000);
+}
+
+void MainWindow::filterGaussianBlur()
+{
+    const auto p = filtui::promptGaussianBlur(this);
+    if (!p)
+        return;
+    applyFilterToActiveLayer(tr("Gaussian Blur"), [p](const QImage &src) {
+        return filt::gaussianBlur(src, p->radius);
+    });
+}
+
+void MainWindow::filterMotionBlur()
+{
+    const auto p = filtui::promptMotionBlur(this);
+    if (!p)
+        return;
+    applyFilterToActiveLayer(tr("Motion Blur"), [p](const QImage &src) {
+        return filt::motionBlur(src, p->distance, p->angle);
+    });
+}
+
+void MainWindow::filterAddNoise()
+{
+    const auto p = filtui::promptAddNoise(this);
+    if (!p)
+        return;
+    applyFilterToActiveLayer(tr("Add Noise"), [p](const QImage &src) {
+        return filt::addNoise(src, p->amount, p->gaussian, p->monochromatic, p->seed);
+    });
+}
+
+void MainWindow::filterVignette()
+{
+    const auto p = filtui::promptVignette(this);
+    if (!p)
+        return;
+    applyFilterToActiveLayer(tr("Vignette"), [p](const QImage &src) {
+        return filt::vignette(src, p->amount, p->color, p->midpoint, p->roundness, p->feather);
+    });
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

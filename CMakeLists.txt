@@ -38,6 +38,7 @@ qt_add_executable(CompositorQt
     src/MainWindow.h src/MainWindow.cpp
     src/CanvasView.h src/CanvasView.cpp
     src/LayersPanel.h src/LayersPanel.cpp
+    src/FiltersUi.h src/FiltersUi.cpp
 )
 target_link_libraries(CompositorQt PRIVATE CompositorCore Qt6::Widgets)
 

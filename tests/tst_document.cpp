@@ -54,6 +54,7 @@ private slots:
     void filtGaussianUniformity();
     void filtNoiseDeterministic();
     void filtVignetteDarkens();
+    void filterCommandUndoRedo();
 };
 
 void TestDocument::addRemoveLayer()
@@ -799,6 +800,27 @@ void TestDocument::filtVignetteDarkens()
     QVERIFY2(corner < center, qPrintable(QString("corner %1 vs center %2").arg(corner).arg(center)));
     // 中心接近原值(200)
     QVERIFY(qAbs(center - 200) < 5);
+}
+
+void TestDocument::filterCommandUndoRedo()
+{
+    // FilterCommand 走撤销栈:redo 应用滤镜,undo 还原原像素
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), doc.size(), Qt::blue);
+    doc.addLayer(layer);
+
+    const QImage before = layer->pixels();
+    const QImage after = filt::addNoise(before, 40.0, true, false, 7);
+    QVERIFY(after != before);
+
+    QUndoStack stack;
+    stack.push(new FilterCommand(layer, before, after, QStringLiteral("Add Noise")));
+    QCOMPARE(layer->pixels(), after);   // redo(首次执行)
+    stack.undo();
+    QCOMPARE(layer->pixels(), before);  // 还原
+    stack.redo();
+    QCOMPARE(layer->pixels(), after);   // 再次应用
+    QVERIFY(stack.canUndo());
 }
 
 QTEST_MAIN(TestDocument)
