@@ -38,6 +38,11 @@ jobs:
           echo "=== windeployqt ==="
           "$QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --no-system-d3d-compiler --no-opengl-sw tst_document.exe
           echo "windeployqt exit=$?"
+          # windeployqt 默认只装 windows 平台插件;offscreen 需手动复制
+          echo "=== add offscreen platform ==="
+          mkdir -p platforms
+          cp "$QT_ROOT_DIR/plugins/platforms/qoffscreen.dll" platforms/ 2>/dev/null && echo "qoffscreen copied" || echo "no qoffscreen"
+          ls platforms/ | head
           # Windows headless CI:必须用 offscreen 平台插件,否则 GUI subsystem 启动失败
           # QTEST_GUILESS_MAIN 不接受 Qt 平台 CLI 参数,只能通过环境变量
           echo "=== run tst_document (offscreen) ==="
