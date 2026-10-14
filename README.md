@@ -75,4 +75,5 @@ ctest --test-dir build --output-on-failure
 - [x] 滤镜 UI 接入：Filter 菜单（4 项）+ 参数对话框（FiltersUi）+ FilterCommand 撤销命令 + 1 单测
 - [x] 画布工具补齐：工具栏（画笔 B/移动 V/吸管 I/选区 M 互斥）+ 图层 offset 渲染 + MoveLayer/ClearRect 撤销命令 + 3 单测
 - [x] 调色 GPU 化：AdjustLut 256×1 管线（Levels/Curves/Exposure/BC 一键查表）+ Document renderLut 非破坏性调色 + GpuRenderer 后处理 shader + 7 单测
-- [x] 调色 UI 接入：Image 菜单（Levels/Curves/Exposure/BC/HSV/Invert/Reset）+ 参数对话框（AdjustmentsUi）+ AdjustLutCommand 非破坏性撤销命令 + 1 单测  ← 当前
+- [x] 调色 UI 接入：Image 菜单（Levels/Curves/Exposure/BC/HSV/Invert/Reset）+ 参数对话框（AdjustmentsUi）+ AdjustLutCommand 非破坏性撤销命令 + 1 单测
+- [x] 多文档标签页：QTabWidget + DocumentTab（Canvas+Document+Path）+ Document 自带 QUndoStack + 切换 tab 同步 Canvas/Layers/Undo 信号 + 修改标记 + Ctrl-W 关闭 + 2 单测  ← 当前

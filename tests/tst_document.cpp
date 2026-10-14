@@ -69,6 +69,8 @@ private slots:
     void documentRenderLut();
     void gpuRendererLutConsistency();
     void adjLutCommandUndoRedo();
+    void documentOwnsUndoStack();
+    void perDocumentUndoIsolation();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1077,6 +1079,44 @@ void TestDocument::adjLutCommandUndoRedo()
     stack.redo();
     QCOMPARE(doc.renderLut().data, bright.data);  // 再次应用
     QVERIFY(stack.canUndo());
+}
+
+void TestDocument::documentOwnsUndoStack()
+{
+    // Document 自带撤销栈,可独立于任何外部栈工作
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), Qt::white);
+    doc.addLayer(layer);
+    QVERIFY(doc.undoStack() != nullptr);
+    QVERIFY(doc.undoStack()->isClean());
+
+    const QImage before = layer->pixels();
+    QImage after = before;
+    after.setPixel(0, 0, qRgba(0, 0, 0, 255));
+    doc.undoStack()->push(new FilterCommand(layer, before, after, QStringLiteral("Paint")));
+    QVERIFY(!doc.undoStack()->isClean());
+
+    doc.undoStack()->undo();
+    QCOMPARE(layer->pixels().pixel(0, 0), before.pixel(0, 0));
+}
+
+void TestDocument::perDocumentUndoIsolation()
+{
+    // 两个 Document 的撤销栈互不影响
+    Document d1(QSize(2, 2));
+    Document d2(QSize(2, 2));
+    auto *l1 = new Layer(QStringLiteral("A"), QSize(2, 2), Qt::red);
+    auto *l2 = new Layer(QStringLiteral("B"), QSize(2, 2), Qt::blue);
+    d1.addLayer(l1);
+    d2.addLayer(l2);
+
+    d1.undoStack()->push(new AddLayerCommand(&d1, new Layer(QStringLiteral("X"), QSize(2, 2), Qt::green)));
+    QCOMPARE(d1.layerCount(), 2);
+    QCOMPARE(d2.layerCount(), 1); // d2 不受影响
+
+    d1.undoStack()->undo();
+    QCOMPARE(d1.layerCount(), 1);
+    QCOMPARE(d2.layerCount(), 1);
 }
 
 QTEST_MAIN(TestDocument)

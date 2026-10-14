@@ -1,16 +1,17 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QUndoStack>
 
 #include <functional>
 
 class CanvasView;
 class Document;
+class DocumentTab;
 class LayersPanel;
 class QColor;
 class QLabel;
 class QImage;
+class QTabWidget;
 
 namespace adjui { struct LutApplyResult; }
 
@@ -28,16 +29,26 @@ private:
     void createActions();
     void createMenus();
     void createStatusBar();
-    void newDocument();
-    void openDocument();
-    void saveDocument();
-    void clearDocument();
-    void createDockPanels();
     void createToolBar();
-    void syncToolActions(int toolIndex);
-    void onColorPicked(const QColor &color);
 
-    // 滤镜:在活动图层上执行变换并压入撤销栈(名称用于 Undo 菜单提示)
+    // Tab 操作
+    DocumentTab *createTab(Document *document, const QString &path = {});
+    DocumentTab *currentTab() const;
+    Document *currentDocument() const;
+    CanvasView *currentCanvas() const;
+    void setCurrentTab(DocumentTab *tab);
+    void updateTitleFromTab(DocumentTab *tab);
+    void onTabChanged(int index);
+    void onTabCloseRequested(int index);
+    void closeTab(DocumentTab *tab);
+    void maybeCloseAllTabs(); // closeEvent 用
+
+    void fileNew();
+    void fileOpen();
+    void fileSave();
+    void fileClose();
+
+    // 滤镜:在活动图层上执行变换并压入撤销栈
     void applyFilterToActiveLayer(const QString &name,
                                   const std::function<QImage(const QImage &)> &fn);
     void filterGaussianBlur();
@@ -45,8 +56,9 @@ private:
     void filterAddNoise();
     void filterVignette();
 
-    // 调色(非破坏性 LUT 调色,走 AdjustLutCommand)
-    void applyLutAdjustment(const QString &name, const std::function<std::optional<adjui::LutApplyResult>()> &prompt);
+    // 调色(非破坏性 LUT 调色)
+    void applyLutAdjustment(const QString &name,
+                            const std::function<std::optional<adjui::LutApplyResult>()> &prompt);
     void adjLevels();
     void adjBrightnessContrast();
     void adjExposure();
@@ -55,18 +67,19 @@ private:
     void adjInvert();
     void adjResetLut();
 
-    CanvasView *m_canvas = nullptr;
+    void onColorPicked(const QColor &color);
+    void onUndoStackChanged();
+
+    QTabWidget *m_tabs = nullptr;
     LayersPanel *m_layersPanel = nullptr;
-    Document *m_document = nullptr;
-    QUndoStack m_undoStack;
     QLabel *m_zoomLabel = nullptr;
     QLabel *m_cursorLabel = nullptr;
-    QString m_currentPath; // 已打开/保存的文件路径
 
     // File
     QAction *m_newAction = nullptr;
     QAction *m_openAction = nullptr;
     QAction *m_saveAction = nullptr;
+    QAction *m_closeAction = nullptr;
     QAction *m_quitAction = nullptr;
     // Edit
     QAction *m_undoAction = nullptr;

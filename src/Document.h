@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QSize>
+#include <QUndoStack>
 #include <QVector>
 
 class Layer;
@@ -36,6 +37,9 @@ public:
     const adj::AdjustLut &renderLut() const { return m_renderLut; }
     void setRenderLut(const adj::AdjustLut &lut);
 
+    // 每个 Document 独立的撤销栈
+    QUndoStack *undoStack() { return &m_undoStack; }
+
 signals:
     void contentChanged();    // 像素/显示变化,画布需重绘
     void structureChanged();  // 图层增删
@@ -46,4 +50,5 @@ private:
     QVector<Layer *> m_layers;
     Layer *m_activeLayer = nullptr;
     adj::AdjustLut m_renderLut;
+    QUndoStack m_undoStack;
 };

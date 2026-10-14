@@ -39,6 +39,7 @@ qt_add_executable(CompositorQt
     src/MainWindow.h src/MainWindow.cpp
     src/CanvasView.h src/CanvasView.cpp
     src/LayersPanel.h src/LayersPanel.cpp
+    src/DocumentTab.h src/DocumentTab.cpp
     src/FiltersUi.h src/FiltersUi.cpp
     src/AdjustmentsUi.h src/AdjustmentsUi.cpp
 )
