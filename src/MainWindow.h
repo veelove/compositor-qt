@@ -30,6 +30,7 @@ private:
     void createMenus();
     void createStatusBar();
     void createToolBar();
+    void createDockPanels();
 
     // Tab 操作
     DocumentTab *createTab(Document *document, const QString &path = {});
