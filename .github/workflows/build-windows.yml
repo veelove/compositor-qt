@@ -27,7 +27,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cmake --build build 2>&1 | tee build.log; echo "BUILD_EXIT=${PIPESTATUS[0]}" >> build.log
+        run: cmake --build build > build.log 2>&1; echo "BUILD_EXIT=$?" >> build.log
       - name: Append build log to summary
         if: always()
         shell: bash
