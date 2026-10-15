@@ -134,6 +134,48 @@ private:
     quint32 m_bSeed, m_aSeed;
 };
 
+// HSV 调色(非破坏性,before/after)
+class HsvCommand : public QUndoCommand
+{
+public:
+    HsvCommand(Document *document, const adj::HsvParams &before, const adj::HsvParams &after,
+               QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    adj::HsvParams m_before, m_after;
+};
+
+// 黑白(非破坏性,before/after)
+class BlackWhiteCommand : public QUndoCommand
+{
+public:
+    BlackWhiteCommand(Document *document, const adj::BwParams &before, const adj::BwParams &after,
+                      QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    adj::BwParams m_before, m_after;
+};
+
+// 色彩平衡(非破坏性,before/after)
+class ColorBalanceCommand : public QUndoCommand
+{
+public:
+    ColorBalanceCommand(Document *document, const adj::CbParams &before, const adj::CbParams &after,
+                         QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    adj::CbParams m_before, m_after;
+};
+
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。
 class AddLayerCommand : public QUndoCommand
 {

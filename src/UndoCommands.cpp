@@ -222,6 +222,51 @@ void AddNoiseCommand::redo()
 }
 
 // ---------------------------------------------------------------------------
+// HsvCommand
+// ---------------------------------------------------------------------------
+HsvCommand::HsvCommand(Document *document, const adj::HsvParams &before, const adj::HsvParams &after,
+                       QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Hue/Saturation"), parent)
+    , m_document(document)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void HsvCommand::undo() { m_document->setHsv(m_before); }
+void HsvCommand::redo() { m_document->setHsv(m_after); }
+
+// ---------------------------------------------------------------------------
+// BlackWhiteCommand
+// ---------------------------------------------------------------------------
+BlackWhiteCommand::BlackWhiteCommand(Document *document, const adj::BwParams &before,
+                                      const adj::BwParams &after, QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Black & White"), parent)
+    , m_document(document)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void BlackWhiteCommand::undo() { m_document->setBlackWhite(m_before); }
+void BlackWhiteCommand::redo() { m_document->setBlackWhite(m_after); }
+
+// ---------------------------------------------------------------------------
+// ColorBalanceCommand
+// ---------------------------------------------------------------------------
+ColorBalanceCommand::ColorBalanceCommand(Document *document, const adj::CbParams &before,
+                                           const adj::CbParams &after, QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Color Balance"), parent)
+    , m_document(document)
+    , m_before(before)
+    , m_after(after)
+{
+}
+
+void ColorBalanceCommand::undo() { m_document->setColorBalance(m_before); }
+void ColorBalanceCommand::redo() { m_document->setColorBalance(m_after); }
+
+// ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
 AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QUndoCommand *parent)

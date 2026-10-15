@@ -80,6 +80,9 @@ private slots:
     void addNoiseOnDocument();
     void addNoiseCommandUndoRedo();
     void gpuAddNoiseConsistency();
+    void hsvBwCbOnDocument();
+    void hsvBwCbCommandUndoRedo();
+    void gpuHsvBwCbConsistency();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1289,6 +1292,87 @@ void TestDocument::gpuAddNoiseConsistency()
     auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(100, 100, 100));
     doc.addLayer(layer);
     doc.setAddNoise(40.0, true, false, 12345u);
+
+    GpuRenderer g;
+    PainterRenderer p;
+    const QImage gImg = g.render(doc);
+    const QImage pImg = p.render(doc);
+    QCOMPARE(gImg.size(), pImg.size());
+    bool differ = false;
+    for (int y = 0; y < 8 && !differ; ++y)
+        for (int x = 0; x < 8 && !differ; ++x)
+            if (gImg.pixel(x, y) != pImg.pixel(x, y))
+                differ = true;
+    QVERIFY(!differ);
+}
+
+void TestDocument::hsvBwCbOnDocument()
+{
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), QColor(120, 80, 200));
+    doc.addLayer(layer);
+    QCOMPARE(doc.hsv().hue, 0.0);
+    QVERIFY(!doc.hsv().colorize);
+
+    adj::HsvParams hp; hp.hue = 30; hp.saturation = 20; hp.lightness = -10;
+    doc.setHsv(hp);
+    QCOMPARE(doc.hsv().hue, 30.0);
+    doc.clearHsv();
+    QCOMPARE(doc.hsv().hue, 0.0);
+
+    adj::BwParams bp; bp.reds = 80; bp.tint = true; bp.tintHue = 40;
+    doc.setBlackWhite(bp);
+    QCOMPARE(doc.blackWhite().reds, 80);
+    QVERIFY(doc.blackWhite().tint);
+    doc.clearBlackWhite();
+    QCOMPARE(doc.blackWhite().reds, 40);
+
+    adj::CbParams cp; cp.shadowCyanRed = 25; cp.midMagentaGreen = -15;
+    doc.setColorBalance(cp);
+    QCOMPARE(doc.colorBalance().shadowCyanRed, 25);
+    doc.clearColorBalance();
+    QCOMPARE(doc.colorBalance().shadowCyanRed, 0);
+
+    // 图层像素不变
+    QCOMPARE(layer->pixels().pixelColor(0, 0), QColor(120, 80, 200));
+}
+
+void TestDocument::hsvBwCbCommandUndoRedo()
+{
+    Document doc(QSize(4, 4));
+    QUndoStack stack;
+    adj::HsvParams hp; hp.hue = 30;
+    stack.push(new HsvCommand(&doc, doc.hsv(), hp));
+    QCOMPARE(doc.hsv().hue, 30.0);
+    stack.undo();
+    QCOMPARE(doc.hsv().hue, 0.0);
+    stack.redo();
+    QCOMPARE(doc.hsv().hue, 30.0);
+
+    adj::BwParams bp; bp.reds = 80;
+    stack.push(new BlackWhiteCommand(&doc, doc.blackWhite(), bp));
+    QCOMPARE(doc.blackWhite().reds, 80);
+    stack.undo();
+    QCOMPARE(doc.blackWhite().reds, 40);
+
+    adj::CbParams cp; cp.shadowCyanRed = 25;
+    stack.push(new ColorBalanceCommand(&doc, doc.colorBalance(), cp));
+    QCOMPARE(doc.colorBalance().shadowCyanRed, 25);
+    stack.undo();
+    QCOMPARE(doc.colorBalance().shadowCyanRed, 0);
+}
+
+void TestDocument::gpuHsvBwCbConsistency()
+{
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(100, 150, 200));
+    doc.addLayer(layer);
+    adj::HsvParams hp; hp.hue = 20; hp.saturation = 10;
+    doc.setHsv(hp);
+    adj::BwParams bp; bp.reds = 80; bp.yellows = 60; bp.greens = 40; bp.cyans = 20; bp.blues = 10; bp.magentas = 30;
+    doc.setBlackWhite(bp);
+    adj::CbParams cp; cp.shadowCyanRed = 20; cp.midYellowBlue = -10;
+    doc.setColorBalance(cp);
 
     GpuRenderer g;
     PainterRenderer p;

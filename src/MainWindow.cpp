@@ -442,22 +442,68 @@ void MainWindow::adjCurves()
     applyLutAdjustment(tr("Curves"), [this] { return adjui::promptAndBuildCurves(this); });
 }
 
+// 注:旧的 adjHueSaturation() 已被 adjHueSaturationLive()(非破坏性)替代,这里保留函数体空
+//      以便未来若要恢复破坏性版本不破坏签名。
 void MainWindow::adjHueSaturation()
 {
+    // no-op
+}
+
+void MainWindow::adjHueSaturationLive()
+{
     Document *doc = currentDocument();
-    if (!doc || !doc->activeLayer()) {
-        statusBar()->showMessage(tr("没有活动图层"), 3000);
-        return;
-    }
+    if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
     const auto p = adjui::promptHueSaturation(this);
     if (!p) return;
-    Layer *layer = doc->activeLayer();
-    const QImage before = layer->pixels();
-    QImage after = before;
-    adj::applyHsv(after, *p);
-    if (after == before) return;
-    doc->undoStack()->push(new FilterCommand(layer, before, after, tr("Hue/Saturation")));
-    statusBar()->showMessage(tr("已应用 Hue/Saturation"), 3000);
+    doc->undoStack()->push(new HsvCommand(doc, doc->hsv(), *p));
+    statusBar()->showMessage(tr("已应用 Hue/Saturation(GPU)"), 3000);
+}
+
+void MainWindow::adjBlackWhiteLive()
+{
+    Document *doc = currentDocument();
+    if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
+    bool ok = false;
+    adj::BwParams p = doc->blackWhite();
+    p.reds     = QInputDialog::getInt(this, tr("黑白(GPU) · 红"),   tr("红(0-100)"),   p.reds,     0, 200, 1, &ok); if (!ok) return;
+    p.yellows  = QInputDialog::getInt(this, tr("黑白(GPU) · 黄"),   tr("黄(0-100)"),   p.yellows,  0, 200, 1, &ok); if (!ok) return;
+    p.greens   = QInputDialog::getInt(this, tr("黑白(GPU) · 绿"),   tr("绿(0-100)"),   p.greens,   0, 200, 1, &ok); if (!ok) return;
+    p.cyans    = QInputDialog::getInt(this, tr("黑白(GPU) · 青"),   tr("青(0-100)"),   p.cyans,    0, 200, 1, &ok); if (!ok) return;
+    p.blues    = QInputDialog::getInt(this, tr("黑白(GPU) · 蓝"),   tr("蓝(0-100)"),   p.blues,    0, 200, 1, &ok); if (!ok) return;
+    p.magentas = QInputDialog::getInt(this, tr("黑白(GPU) · 品红"), tr("品红(0-100)"), p.magentas, 0, 200, 1, &ok); if (!ok) return;
+    const QMessageBox::StandardButton t = QMessageBox::question(
+        this, tr("黑白 · 上色"), tr("应用 tint 上色?"),
+        QMessageBox::Yes | QMessageBox::No, p.tint ? QMessageBox::Yes : QMessageBox::No);
+    if (t == QMessageBox::Cancel) return; // 不会发生
+    p.tint = (t == QMessageBox::Yes);
+    if (p.tint) {
+        p.tintHue = QInputDialog::getInt(this, tr("黑白 · tint 色相"), tr("色相(0-360)"), p.tintHue, 0, 360, 1, &ok); if (!ok) return;
+        p.tintSaturation = QInputDialog::getInt(this, tr("黑白 · tint 饱和度"), tr("饱和度(0-100)"), p.tintSaturation, 0, 100, 1, &ok); if (!ok) return;
+    }
+    doc->undoStack()->push(new BlackWhiteCommand(doc, doc->blackWhite(), p));
+    statusBar()->showMessage(tr("已应用黑白(GPU)"), 3000);
+}
+
+void MainWindow::adjColorBalanceLive()
+{
+    Document *doc = currentDocument();
+    if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
+    bool ok = false;
+    adj::CbParams p = doc->colorBalance();
+    // 阴影
+    p.shadowCyanRed      = QInputDialog::getInt(this, tr("色彩平衡 · 阴影 · 青/红"),   tr("青/红(-100~100)"),  p.shadowCyanRed,      -100, 100, 1, &ok); if (!ok) return;
+    p.shadowMagentaGreen = QInputDialog::getInt(this, tr("色彩平衡 · 阴影 · 品红/绿"), tr("品红/绿(-100~100)"), p.shadowMagentaGreen, -100, 100, 1, &ok); if (!ok) return;
+    p.shadowYellowBlue   = QInputDialog::getInt(this, tr("色彩平衡 · 阴影 · 黄/蓝"),   tr("黄/蓝(-100~100)"),   p.shadowYellowBlue,   -100, 100, 1, &ok); if (!ok) return;
+    // 中间调
+    p.midCyanRed         = QInputDialog::getInt(this, tr("色彩平衡 · 中调 · 青/红"),   tr("青/红(-100~100)"),  p.midCyanRed,         -100, 100, 1, &ok); if (!ok) return;
+    p.midMagentaGreen    = QInputDialog::getInt(this, tr("色彩平衡 · 中调 · 品红/绿"), tr("品红/绿(-100~100)"), p.midMagentaGreen,    -100, 100, 1, &ok); if (!ok) return;
+    p.midYellowBlue      = QInputDialog::getInt(this, tr("色彩平衡 · 中调 · 黄/蓝"),   tr("黄/蓝(-100~100)"),   p.midYellowBlue,      -100, 100, 1, &ok); if (!ok) return;
+    // 高光
+    p.highlightCyanRed      = QInputDialog::getInt(this, tr("色彩平衡 · 高光 · 青/红"),   tr("青/红(-100~100)"),  p.highlightCyanRed,      -100, 100, 1, &ok); if (!ok) return;
+    p.highlightMagentaGreen = QInputDialog::getInt(this, tr("色彩平衡 · 高光 · 品红/绿"), tr("品红/绿(-100~100)"), p.highlightMagentaGreen, -100, 100, 1, &ok); if (!ok) return;
+    p.highlightYellowBlue   = QInputDialog::getInt(this, tr("色彩平衡 · 高光 · 黄/蓝"),   tr("黄/蓝(-100~100)"),   p.highlightYellowBlue,   -100, 100, 1, &ok); if (!ok) return;
+    doc->undoStack()->push(new ColorBalanceCommand(doc, doc->colorBalance(), p));
+    statusBar()->showMessage(tr("已应用色彩平衡(GPU)"), 3000);
 }
 
 void MainWindow::adjInvert()
@@ -655,8 +701,12 @@ void MainWindow::createActions()
     connect(m_adjExposureAction, &QAction::triggered, this, &MainWindow::adjExposure);
     m_adjCurvesAction = new QAction(tr("&Curves..."), this);
     connect(m_adjCurvesAction, &QAction::triggered, this, &MainWindow::adjCurves);
-    m_adjHsvAction = new QAction(tr("&Hue/Saturation..."), this);
-    connect(m_adjHsvAction, &QAction::triggered, this, &MainWindow::adjHueSaturation);
+    m_adjHsvAction = new QAction(tr("&Hue/Saturation (GPU)..."), this);
+    connect(m_adjHsvAction, &QAction::triggered, this, &MainWindow::adjHueSaturationLive);
+    m_adjBwAction = new QAction(tr("&Black & White (GPU)..."), this);
+    connect(m_adjBwAction, &QAction::triggered, this, &MainWindow::adjBlackWhiteLive);
+    m_adjCbAction = new QAction(tr("Color &Balance (GPU)..."), this);
+    connect(m_adjCbAction, &QAction::triggered, this, &MainWindow::adjColorBalanceLive);
     m_adjInvertAction = new QAction(tr("&Invert"), this);
     connect(m_adjInvertAction, &QAction::triggered, this, &MainWindow::adjInvert);
     m_adjResetAction = new QAction(tr("&Reset Adjustments"), this);
@@ -709,6 +759,8 @@ void MainWindow::createMenus()
     imageMenu->addAction(m_adjExposureAction);
     imageMenu->addAction(m_adjBcAction);
     imageMenu->addAction(m_adjHsvAction);
+    imageMenu->addAction(m_adjBwAction);
+    imageMenu->addAction(m_adjCbAction);
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjInvertAction);
     imageMenu->addSeparator();

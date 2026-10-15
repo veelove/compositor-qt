@@ -1,6 +1,7 @@
 #include "PainterRenderer.h"
 
 #include "AdjustLut.h"
+#include "Adjustments.h"
 #include "Document.h"
 #include "Filters.h"
 #include "Layer.h"
@@ -54,6 +55,48 @@ QImage PainterRenderer::render(const Document &document) const
                               document.noiseGaussian(), document.noiseMonochromatic(),
                               document.noiseSeed());
         canvas = flat;
+    }
+
+    // 渲染期 HSV/黑白/色彩平衡(CPU fallback,跨通道计算)
+    {
+        const adj::HsvParams &hp = document.hsv();
+        const bool hasHsv = hp.hue != 0.0 || hp.saturation != 0.0 || hp.lightness != 0.0 || hp.colorize;
+        if (hasHsv) {
+            QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+            adj::applyHsv(flat, hp);
+            canvas = flat;
+        }
+    }
+    {
+        const adj::BwParams &bp = document.blackWhite();
+        const adj::BwParams def;
+        const bool hasBw = bp.reds != def.reds || bp.yellows != def.yellows
+                        || bp.greens != def.greens || bp.cyans != def.cyans
+                        || bp.blues != def.blues || bp.magentas != def.magentas
+                        || bp.tint;
+        if (hasBw) {
+            QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+            adj::applyBlackWhite(flat, bp);
+            canvas = flat;
+        }
+    }
+    {
+        const adj::CbParams &cb = document.colorBalance();
+        const adj::CbParams def;
+        const bool hasCb = cb.shadowCyanRed != def.shadowCyanRed
+                        || cb.shadowMagentaGreen != def.shadowMagentaGreen
+                        || cb.shadowYellowBlue != def.shadowYellowBlue
+                        || cb.midCyanRed != def.midCyanRed
+                        || cb.midMagentaGreen != def.midMagentaGreen
+                        || cb.midYellowBlue != def.midYellowBlue
+                        || cb.highlightCyanRed != def.highlightCyanRed
+                        || cb.highlightMagentaGreen != def.highlightMagentaGreen
+                        || cb.highlightYellowBlue != def.highlightYellowBlue;
+        if (hasCb) {
+            QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+            adj::applyColorBalance(flat, cb);
+            canvas = flat;
+        }
     }
 
     // 渲染期全局调色(非破坏性后处理)

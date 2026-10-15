@@ -77,6 +77,11 @@ private:
     // 非破坏性杂色(GPU 加速预览)
     void adjAddNoiseLive();
 
+    // 非破坏性 HSV/黑白/色彩平衡(GPU 加速预览)
+    void adjHueSaturationLive();
+    void adjBlackWhiteLive();
+    void adjColorBalanceLive();
+
     void onColorPicked(const QColor &color);
     void onUndoStackChanged();
 

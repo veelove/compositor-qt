@@ -141,6 +141,88 @@ void Document::clearAddNoise()
     emit contentChanged();
 }
 
+void Document::setHsv(const adj::HsvParams &p)
+{
+    if (qFuzzyCompare(m_hsv.hue, p.hue)
+        && qFuzzyCompare(m_hsv.saturation, p.saturation)
+        && qFuzzyCompare(m_hsv.lightness, p.lightness)
+        && m_hsv.colorize == p.colorize)
+        return;
+    m_hsv = p;
+    emit contentChanged();
+}
+
+void Document::clearHsv()
+{
+    if (qFuzzyIsNull(m_hsv.hue) && qFuzzyIsNull(m_hsv.saturation)
+        && qFuzzyIsNull(m_hsv.lightness) && !m_hsv.colorize)
+        return;
+    m_hsv = adj::HsvParams{};
+    emit contentChanged();
+}
+
+void Document::setBlackWhite(const adj::BwParams &p)
+{
+    const bool sameTint = m_bw.tint == p.tint
+        && m_bw.tintHue == p.tintHue
+        && m_bw.tintSaturation == p.tintSaturation;
+    if (m_bw.reds == p.reds && m_bw.yellows == p.yellows
+        && m_bw.greens == p.greens && m_bw.cyans == p.cyans
+        && m_bw.blues == p.blues && m_bw.magentas == p.magentas && sameTint)
+        return;
+    m_bw = p;
+    emit contentChanged();
+}
+
+void Document::clearBlackWhite()
+{
+    const adj::BwParams def;
+    const bool sameTint = m_bw.tint == def.tint
+        && m_bw.tintHue == def.tintHue
+        && m_bw.tintSaturation == def.tintSaturation;
+    if (m_bw.reds == def.reds && m_bw.yellows == def.yellows
+        && m_bw.greens == def.greens && m_bw.cyans == def.cyans
+        && m_bw.blues == def.blues && m_bw.magentas == def.magentas && sameTint)
+        return;
+    m_bw = def;
+    emit contentChanged();
+}
+
+void Document::setColorBalance(const adj::CbParams &p)
+{
+    if (m_cb.shadowCyanRed == p.shadowCyanRed
+        && m_cb.shadowMagentaGreen == p.shadowMagentaGreen
+        && m_cb.shadowYellowBlue == p.shadowYellowBlue
+        && m_cb.midCyanRed == p.midCyanRed
+        && m_cb.midMagentaGreen == p.midMagentaGreen
+        && m_cb.midYellowBlue == p.midYellowBlue
+        && m_cb.highlightCyanRed == p.highlightCyanRed
+        && m_cb.highlightMagentaGreen == p.highlightMagentaGreen
+        && m_cb.highlightYellowBlue == p.highlightYellowBlue
+        && m_cb.preserveLuminosity == p.preserveLuminosity)
+        return;
+    m_cb = p;
+    emit contentChanged();
+}
+
+void Document::clearColorBalance()
+{
+    const adj::CbParams def;
+    if (m_cb.shadowCyanRed == def.shadowCyanRed
+        && m_cb.shadowMagentaGreen == def.shadowMagentaGreen
+        && m_cb.shadowYellowBlue == def.shadowYellowBlue
+        && m_cb.midCyanRed == def.midCyanRed
+        && m_cb.midMagentaGreen == def.midMagentaGreen
+        && m_cb.midYellowBlue == def.midYellowBlue
+        && m_cb.highlightCyanRed == def.highlightCyanRed
+        && m_cb.highlightMagentaGreen == def.highlightMagentaGreen
+        && m_cb.highlightYellowBlue == def.highlightYellowBlue
+        && m_cb.preserveLuminosity == def.preserveLuminosity)
+        return;
+    m_cb = def;
+    emit contentChanged();
+}
+
 void Document::setSize(const QSize &size)
 {
     if (m_size == size)

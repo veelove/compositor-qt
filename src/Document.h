@@ -66,6 +66,21 @@ public:
     // 每个 Document 独立的撤销栈
     QUndoStack *undoStack() { return &m_undoStack; }
 
+    // 渲染期 HSV(非破坏性;amount=色相+饱和度+明度;identity 时 skip)
+    const adj::HsvParams &hsv() const { return m_hsv; }
+    void setHsv(const adj::HsvParams &p);
+    void clearHsv();
+
+    // 渲染期黑白(非破坏性;6 权重 + tint)
+    const adj::BwParams &blackWhite() const { return m_bw; }
+    void setBlackWhite(const adj::BwParams &p);
+    void clearBlackWhite();
+
+    // 渲染期色彩平衡(非破坏性;9 偏移 + preserveLuminosity)
+    const adj::CbParams &colorBalance() const { return m_cb; }
+    void setColorBalance(const adj::CbParams &p);
+    void clearColorBalance();
+
 signals:
     void contentChanged();    // 像素/显示变化,画布需重绘
     void structureChanged();  // 图层增删
@@ -80,5 +95,8 @@ private:
     struct VignetteParams { double amount = 0, midpoint = 50, roundness = 100, feather = 60; } m_vignette;
     struct MotionBlurParams { double distance = 0, angle = 0; } m_motionBlur;
     struct NoiseParams { double amount = 0; bool gaussian = true; bool monochromatic = false; quint32 seed = 0; } m_noise;
+    adj::HsvParams m_hsv;
+    adj::BwParams m_bw;
+    adj::CbParams m_cb;
     QUndoStack m_undoStack;
 };

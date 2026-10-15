@@ -203,6 +203,234 @@ void main() {
 }
 )";
 
+// ============================== HSV ==============================
+// 调色 shader:对每个像素做 RGB->HSL 转换,按 uHueShift/uSatMul/uLight
+// 调整,转回 RGB。uColorize=1 时用纯色化(替代原色相为 uHueShift)
+// uniform uHue: 弧度(已转换);uSat: 倍率;uLight: -1..+1
+// uColorize: 0/1
+// uHueShiftRadians: 弧度
+constexpr const char *kFragHsvSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform float uHueShiftRadians;
+uniform float uSatMul;
+uniform float uLight;
+uniform int uColorize;
+out vec4 fragColor;
+
+vec3 rgb2hsl(vec3 c) {
+    float mx = max(max(c.r, c.g), c.b);
+    float mn = min(min(c.r, c.g), c.b);
+    float d = mx - mn;
+    float l = (mx + mn) * 0.5;
+    float h = 0.0, s = 0.0;
+    if (d > 0.00001) {
+        s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+        if (mx == c.r)      h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+        else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+        else                h = (c.r - c.g) / d + 4.0;
+        h /= 6.0;
+    }
+    return vec3(h, s, l);
+}
+
+float hue2rgb(float p, float q, float t) {
+    if (t < 0.0) t += 1.0;
+    if (t > 1.0) t -= 1.0;
+    if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+    if (t < 0.5)       return q;
+    if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    return p;
+}
+
+vec3 hsl2rgb(vec3 hsl) {
+    float h = hsl.x, s = hsl.y, l = hsl.z;
+    if (s < 0.00001) return vec3(l);
+    float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+    float p = 2.0 * l - q;
+    return vec3(hue2rgb(p, q, h + 1.0 / 3.0),
+                hue2rgb(p, q, h),
+                hue2rgb(p, q, h - 1.0 / 3.0));
+}
+
+void main() {
+    vec4 c = texture(uScene, vUV);
+    if (uColorize == 1) {
+        vec3 hsl = rgb2hsl(c.rgb);
+        hsl.x = fract(uHueShiftRadians / 6.2831853 + 1.0);
+        hsl.y = 0.5;
+        c.rgb = hsl2rgb(hsl);
+    } else if (uHueShiftRadians == 0.0 && uSatMul == 1.0 && uLight == 0.0) {
+        // identity:不应用
+    } else {
+        vec3 hsl = rgb2hsl(c.rgb);
+        if (uHueShiftRadians != 0.0) hsl.x = fract(hsl.x + uHueShiftRadians / 6.2831853 + 1.0);
+        if (uSatMul != 1.0)         hsl.y = clamp(hsl.y * uSatMul, 0.0, 1.0);
+        if (uLight != 0.0)          hsl.z = uLight >= 0.0
+                                                ? hsl.z + (1.0 - hsl.z) * uLight
+                                                : hsl.z * (1.0 + uLight);
+        c.rgb = hsl2rgb(hsl);
+    }
+    fragColor = c;
+}
+)";
+
+// ============================== Black & White ==============================
+// 6 桶色相权重 + ITU-R BT.601 亮度,按 Photoshop 算法输出灰度
+// uWeights: 6 个 vec3=6 桶色相中心(0-1 HSL);在 shader 里只用于 0.5±0.166 判断
+// uRed/yellow/green/cyan/blue/magenta: 0-100
+// uTint: 0/1;uTintHue: 0-360;uTintSat: 0-100
+constexpr const char *kFragBwSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform float uRed, uYellow, uGreen, uCyan, uBlue, uMagenta;
+uniform int uTint;
+uniform float uTintHue;
+uniform float uTintSat;
+out vec4 fragColor;
+
+vec3 rgb2hsl(vec3 c) {
+    float mx = max(max(c.r, c.g), c.b);
+    float mn = min(min(c.r, c.g), c.b);
+    float d = mx - mn;
+    float l = (mx + mn) * 0.5;
+    float h = 0.0, s = 0.0;
+    if (d > 0.00001) {
+        s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+        if (mx == c.r)      h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+        else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+        else                h = (c.r - c.g) / d + 4.0;
+        h /= 6.0;
+    }
+    return vec3(h, s, l);
+}
+
+float hue2rgb(float p, float q, float t) {
+    if (t < 0.0) t += 1.0;
+    if (t > 1.0) t -= 1.0;
+    if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+    if (t < 0.5)       return q;
+    if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+    return p;
+}
+
+vec3 hsl2rgb(vec3 hsl) {
+    if (hsl.y < 0.00001) return vec3(hsl.z);
+    float q = hsl.z < 0.5 ? hsl.z * (1.0 + hsl.y) : hsl.z + hsl.y - hsl.z * hsl.y;
+    float p = 2.0 * hsl.z - q;
+    return vec3(hue2rgb(p, q, hsl.x + 1.0 / 3.0),
+                hue2rgb(p, q, hsl.x),
+                hue2rgb(p, q, hsl.x - 1.0 / 3.0));
+}
+
+// 6 桶色相中心
+const float BUCKETS[6] = float[6](0.0/6.0, 1.0/6.0, 2.0/6.0, 3.0/6.0, 4.0/6.0, 5.0/6.0);
+
+float bucketWeight(float h, float w0, float w1, float w2, float w3, float w4, float w5) {
+    float bestD = 1.0; int bestI = 0;
+    float sndD = 1.0; int sndI = 0;
+    for (int i = 0; i < 6; ++i) {
+        float d = abs(h - BUCKETS[i]);
+        if (d > 0.5) d = 1.0 - d;
+        if (d < bestD) { sndD = bestD; sndI = bestI; bestD = d; bestI = i; }
+        else if (d < sndD) { sndD = d; sndI = i; }
+    }
+    float ws[6];
+    ws[0] = w0; ws[1] = w1; ws[2] = w2; ws[3] = w3; ws[4] = w4; ws[5] = w5;
+    float totalD = bestD + sndD;
+    if (totalD <= 0.0) return ws[bestI] / 100.0;
+    float wB = sndD / totalD;
+    float wS = bestD / totalD;
+    return (ws[bestI] * wB + ws[sndI] * wS) / 100.0;
+}
+
+void main() {
+    vec4 c = texture(uScene, vUV);
+    float baseLum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+    vec3 hsl = rgb2hsl(c.rgb);
+    float bw = bucketWeight(hsl.x, uRed, uYellow, uGreen, uCyan, uBlue, uMagenta);
+    float gray = clamp(baseLum * (0.5 + bw), 0.0, 1.0);
+    if (uTint == 1 && uTintSat > 0.0) {
+        float sat = uTintSat / 100.0;
+        float hue = uTintHue / 360.0;
+        vec3 tinted = hsl2rgb(vec3(hue, sat, hsl.z));
+        c.rgb = mix(vec3(gray), tinted, sat);
+    } else {
+        c.rgb = vec3(gray);
+    }
+    fragColor = c;
+}
+)";
+
+// ============================== Color Balance ==============================
+// CMY 加/减 偏移,按阴影/中间调/高光软阈值分桶
+constexpr const char *kFragCbSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform int uS_cR, uS_mG, uS_yB;
+uniform int uM_cR, uM_mG, uM_yB;
+uniform int uH_cR, uH_mG, uH_yB;
+out vec4 fragColor;
+
+vec3 cbAdjust(vec3 c, int cR, int mG, int yB) {
+    // cR:>0 加红, <0 加青
+    if (cR > 0) {
+        c.r = clamp(c.r + float(cR) * 1.28, 0.0, 1.0);
+        c.g = clamp(c.g - float(cR) * 0.64, 0.0, 1.0);
+        c.b = clamp(c.b - float(cR) * 0.64, 0.0, 1.0);
+    } else {
+        float a = float(-cR) * 1.28;
+        c.g = clamp(c.g + a, 0.0, 1.0);
+        c.b = clamp(c.b + a, 0.0, 1.0);
+        c.r = clamp(c.r - a, 0.0, 1.0);
+    }
+    if (mG > 0) {
+        c.r = clamp(c.r + float(mG) * 0.64, 0.0, 1.0);
+        c.b = clamp(c.b + float(mG) * 1.28, 0.0, 1.0);
+        c.g = clamp(c.g - float(mG) * 1.28, 0.0, 1.0);
+    } else {
+        float a = float(-mG) * 1.28;
+        c.g = clamp(c.g + a, 0.0, 1.0);
+        c.r = clamp(c.r - a * 0.5, 0.0, 1.0);
+        c.b = clamp(c.b - a * 0.5, 0.0, 1.0);
+    }
+    if (yB > 0) {
+        c.r = clamp(c.r + float(yB) * 0.64, 0.0, 1.0);
+        c.g = clamp(c.g + float(yB) * 1.28, 0.0, 1.0);
+        c.b = clamp(c.b - float(yB) * 1.28, 0.0, 1.0);
+    } else {
+        float a = float(-yB) * 1.28;
+        c.b = clamp(c.b + a, 0.0, 1.0);
+        c.r = clamp(c.r - a * 0.5, 0.0, 1.0);
+        c.g = clamp(c.g - a * 0.5, 0.0, 1.0);
+    }
+    return c;
+}
+
+void main() {
+    vec4 c = texture(uScene, vUV);
+    float lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+    float ws, wm, wh;
+    if (lum < 0.5) {
+        ws = 1.0 - lum / 0.5;
+        wm = lum / 0.5;
+        wh = 0.0;
+    } else {
+        ws = 0.0;
+        wm = 1.0 - (lum - 0.5) / 0.498;
+        wh = (lum - 0.5) / 0.498;
+    }
+    int cR = int(uS_cR * ws + uM_cR * wm + uH_cR * wh);
+    int mG = int(uS_mG * ws + uM_mG * wm + uH_mG * wh);
+    int yB = int(uS_yB * ws + uM_yB * wm + uH_yB * wh);
+    c.rgb = cbAdjust(c.rgb, cR, mG, yB);
+    fragColor = c;
+}
+)";
+
 } // namespace
 
 struct GpuRenderer::Impl
@@ -218,6 +446,9 @@ struct GpuRenderer::Impl
     std::unique_ptr<QOpenGLShaderProgram> vignetteProgram; // 暗角
     std::unique_ptr<QOpenGLShaderProgram> motionProgram;   // 动感模糊
     std::unique_ptr<QOpenGLShaderProgram> noiseProgram;    // 杂色
+    std::unique_ptr<QOpenGLShaderProgram> hsvProgram;     // HSV
+    std::unique_ptr<QOpenGLShaderProgram> bwProgram;      // Black & White
+    std::unique_ptr<QOpenGLShaderProgram> cbProgram;      // Color Balance
     QSize lastSize;
     bool ready = false;
 };
@@ -308,6 +539,30 @@ QImage GpuRenderer::render(const Document &document) const
         d->noiseProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragNoiseSrc);
         if (!d->noiseProgram->link()) {
             qCDebug(lcGpuRenderer) << "Noise shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
+        d->hsvProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->hsvProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->hsvProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragHsvSrc);
+        if (!d->hsvProgram->link()) {
+            qCDebug(lcGpuRenderer) << "HSV shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
+        d->bwProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->bwProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->bwProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragBwSrc);
+        if (!d->bwProgram->link()) {
+            qCDebug(lcGpuRenderer) << "BW shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
+        d->cbProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->cbProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->cbProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragCbSrc);
+        if (!d->cbProgram->link()) {
+            qCDebug(lcGpuRenderer) << "CB shader link failed, fallback";
             d->ctx->doneCurrent();
             return PainterRenderer().render(document);
         }
@@ -552,6 +807,144 @@ QImage GpuRenderer::render(const Document &document) const
         f->glBindTexture(GL_TEXTURE_2D, 0);
         f->glEnable(GL_BLEND);
         src = fboA;
+    }
+
+    // 3.66) HSV src → fboA
+    {
+        const adj::HsvParams &hp = document.hsv();
+        const bool hasHsv = hp.hue != 0.0 || hp.saturation != 0.0 || hp.lightness != 0.0 || hp.colorize;
+        if (hasHsv && d->hsvProgram) {
+            const int locScene = d->hsvProgram->uniformLocation("uScene");
+            const int locHue  = d->hsvProgram->uniformLocation("uHueShiftRadians");
+            const int locSat  = d->hsvProgram->uniformLocation("uSatMul");
+            const int locLight= d->hsvProgram->uniformLocation("uLight");
+            const int locCol  = d->hsvProgram->uniformLocation("uColorize");
+            d->hsvProgram->bind();
+            d->hsvProgram->enableAttributeArray(0);
+            d->hsvProgram->enableAttributeArray(1);
+            d->hsvProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+            d->hsvProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+            f->glDisable(GL_BLEND);
+            f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+            f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
+            f->glActiveTexture(GL_TEXTURE0);
+            f->glBindTexture(GL_TEXTURE_2D, src->texture());
+            d->hsvProgram->setUniformValue(locScene, 0);
+            d->hsvProgram->setUniformValue(locHue, float(qDegreesToRadians(hp.hue)));
+            d->hsvProgram->setUniformValue(locSat, 1.0f + float(hp.saturation) / 100.0f);
+            d->hsvProgram->setUniformValue(locLight, float(hp.lightness) / 100.0f);
+            d->hsvProgram->setUniformValue(locCol, hp.colorize ? 1 : 0);
+            f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            d->hsvProgram->disableAttributeArray(0);
+            d->hsvProgram->disableAttributeArray(1);
+            d->hsvProgram->release();
+            f->glBindTexture(GL_TEXTURE_2D, 0);
+            f->glEnable(GL_BLEND);
+            src = fboA;
+        }
+    }
+
+    // 3.67) Black & White src → fboA
+    {
+        const adj::BwParams &bp = document.blackWhite();
+        const adj::BwParams def;
+        const bool hasBw = bp.reds != def.reds || bp.yellows != def.yellows
+                        || bp.greens != def.greens || bp.cyans != def.cyans
+                        || bp.blues != def.blues || bp.magentas != def.magentas
+                        || bp.tint;
+        if (hasBw && d->bwProgram) {
+            const int locScene = d->bwProgram->uniformLocation("uScene");
+            const int locR  = d->bwProgram->uniformLocation("uRed");
+            const int locY  = d->bwProgram->uniformLocation("uYellow");
+            const int locG  = d->bwProgram->uniformLocation("uGreen");
+            const int locC  = d->bwProgram->uniformLocation("uCyan");
+            const int locB  = d->bwProgram->uniformLocation("uBlue");
+            const int locM  = d->bwProgram->uniformLocation("uMagenta");
+            const int locT  = d->bwProgram->uniformLocation("uTint");
+            const int locTh = d->bwProgram->uniformLocation("uTintHue");
+            const int locTs = d->bwProgram->uniformLocation("uTintSat");
+            d->bwProgram->bind();
+            d->bwProgram->enableAttributeArray(0);
+            d->bwProgram->enableAttributeArray(1);
+            d->bwProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+            d->bwProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+            f->glDisable(GL_BLEND);
+            f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+            f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
+            f->glActiveTexture(GL_TEXTURE0);
+            f->glBindTexture(GL_TEXTURE_2D, src->texture());
+            d->bwProgram->setUniformValue(locScene, 0);
+            d->bwProgram->setUniformValue(locR, float(bp.reds));
+            d->bwProgram->setUniformValue(locY, float(bp.yellows));
+            d->bwProgram->setUniformValue(locG, float(bp.greens));
+            d->bwProgram->setUniformValue(locC, float(bp.cyans));
+            d->bwProgram->setUniformValue(locB, float(bp.blues));
+            d->bwProgram->setUniformValue(locM, float(bp.magentas));
+            d->bwProgram->setUniformValue(locT, bp.tint ? 1 : 0);
+            d->bwProgram->setUniformValue(locTh, float(bp.tintHue));
+            d->bwProgram->setUniformValue(locTs, float(bp.tintSaturation));
+            f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            d->bwProgram->disableAttributeArray(0);
+            d->bwProgram->disableAttributeArray(1);
+            d->bwProgram->release();
+            f->glBindTexture(GL_TEXTURE_2D, 0);
+            f->glEnable(GL_BLEND);
+            src = fboA;
+        }
+    }
+
+    // 3.68) Color Balance src → fboA
+    {
+        const adj::CbParams &cb = document.colorBalance();
+        const adj::CbParams def;
+        const bool hasCb = cb.shadowCyanRed != def.shadowCyanRed
+                        || cb.shadowMagentaGreen != def.shadowMagentaGreen
+                        || cb.shadowYellowBlue != def.shadowYellowBlue
+                        || cb.midCyanRed != def.midCyanRed
+                        || cb.midMagentaGreen != def.midMagentaGreen
+                        || cb.midYellowBlue != def.midYellowBlue
+                        || cb.highlightCyanRed != def.highlightCyanRed
+                        || cb.highlightMagentaGreen != def.highlightMagentaGreen
+                        || cb.highlightYellowBlue != def.highlightYellowBlue;
+        if (hasCb && d->cbProgram) {
+            const int locScene = d->cbProgram->uniformLocation("uScene");
+            const int locScR = d->cbProgram->uniformLocation("uS_cR");
+            const int locSmG = d->cbProgram->uniformLocation("uS_mG");
+            const int locSyB = d->cbProgram->uniformLocation("uS_yB");
+            const int locMcR = d->cbProgram->uniformLocation("uM_cR");
+            const int locMmG = d->cbProgram->uniformLocation("uM_mG");
+            const int locMyB = d->cbProgram->uniformLocation("uM_yB");
+            const int locHcR = d->cbProgram->uniformLocation("uH_cR");
+            const int locHmG = d->cbProgram->uniformLocation("uH_mG");
+            const int locHyB = d->cbProgram->uniformLocation("uH_yB");
+            d->cbProgram->bind();
+            d->cbProgram->enableAttributeArray(0);
+            d->cbProgram->enableAttributeArray(1);
+            d->cbProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+            d->cbProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+            f->glDisable(GL_BLEND);
+            f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+            f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
+            f->glActiveTexture(GL_TEXTURE0);
+            f->glBindTexture(GL_TEXTURE_2D, src->texture());
+            d->cbProgram->setUniformValue(locScene, 0);
+            d->cbProgram->setUniformValue(locScR, cb.shadowCyanRed);
+            d->cbProgram->setUniformValue(locSmG, cb.shadowMagentaGreen);
+            d->cbProgram->setUniformValue(locSyB, cb.shadowYellowBlue);
+            d->cbProgram->setUniformValue(locMcR, cb.midCyanRed);
+            d->cbProgram->setUniformValue(locMmG, cb.midMagentaGreen);
+            d->cbProgram->setUniformValue(locMyB, cb.midYellowBlue);
+            d->cbProgram->setUniformValue(locHcR, cb.highlightCyanRed);
+            d->cbProgram->setUniformValue(locHmG, cb.highlightMagentaGreen);
+            d->cbProgram->setUniformValue(locHyB, cb.highlightYellowBlue);
+            f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            d->cbProgram->disableAttributeArray(0);
+            d->cbProgram->disableAttributeArray(1);
+            d->cbProgram->release();
+            f->glBindTexture(GL_TEXTURE_2D, 0);
+            f->glEnable(GL_BLEND);
+            src = fboA;
+        }
     }
 
     // 3.7) 调色后处理 pass
