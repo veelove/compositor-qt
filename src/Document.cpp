@@ -79,6 +79,46 @@ void Document::setGaussianBlurRadius(double radius)
     emit contentChanged();
 }
 
+void Document::setVignette(double amount, double midpoint, double roundness, double feather)
+{
+    if (qFuzzyCompare(m_vignette.amount, amount)
+        && qFuzzyCompare(m_vignette.midpoint, midpoint)
+        && qFuzzyCompare(m_vignette.roundness, roundness)
+        && qFuzzyCompare(m_vignette.feather, feather))
+        return;
+    m_vignette.amount = amount;
+    m_vignette.midpoint = midpoint;
+    m_vignette.roundness = roundness;
+    m_vignette.feather = feather;
+    emit contentChanged();
+}
+
+void Document::clearVignette()
+{
+    if (qFuzzyIsNull(m_vignette.amount))
+        return;
+    m_vignette.amount = 0.0;
+    emit contentChanged();
+}
+
+void Document::setMotionBlur(double distance, double angle)
+{
+    if (qFuzzyCompare(m_motionBlur.distance, distance)
+        && qFuzzyCompare(m_motionBlur.angle, angle))
+        return;
+    m_motionBlur.distance = distance;
+    m_motionBlur.angle = angle;
+    emit contentChanged();
+}
+
+void Document::clearMotionBlur()
+{
+    if (qFuzzyIsNull(m_motionBlur.distance))
+        return;
+    m_motionBlur.distance = 0.0;
+    emit contentChanged();
+}
+
 void Document::setSize(const QSize &size)
 {
     if (m_size == size)

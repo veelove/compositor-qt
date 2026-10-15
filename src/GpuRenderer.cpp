@@ -99,6 +99,66 @@ void main() {
 }
 )";
 
+// 暗角 shader:按到中心的归一化距离做径向衰减,向黑色混合
+// uAmount:强度 0..1,uMid:中点 0..1,uRound:圆度 -1..1,uFeather:羽化 0..1
+constexpr const char *kFragVignetteSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform float uAmount;
+uniform float uMid;
+uniform float uRound;
+uniform float uFeather;
+uniform vec2 uSize;
+out vec4 fragColor;
+void main() {
+    vec4 c = texture(uScene, vUV);
+    if (uAmount <= 0.0) { fragColor = c; return; }
+    vec2 ndc = (vUV - 0.5) * 2.0;
+    float rx = ndc.x * (1.0 + uRound * 0.3);
+    float ry = ndc.y * (1.0 - uRound * 0.3);
+    float dist = length(vec2(rx, ry)) / sqrt(2.0);
+    float falloff = 0.0;
+    if (dist > uMid) {
+        float t = clamp((dist - uMid) / max(0.01, 1.0 - uMid), 0.0, 1.0);
+        falloff = t * t;
+        if (uFeather > 0.0)
+            falloff = pow(falloff, 0.5 + uFeather * 0.5);
+    }
+    float mix_ = clamp(falloff * uAmount, 0.0, 1.0);
+    c.rgb = c.rgb * (1.0 - mix_);
+    fragColor = c;
+}
+)";
+
+// 动感模糊 shader:沿角度方向采样 N 个点平均
+// uDistance:距离(像素),uAngle:角度(度)
+constexpr const char *kFragMotionBlurSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform float uDistance;
+uniform float uAngle;  // 度,顺时针
+uniform vec2 uTexel;
+out vec4 fragColor;
+void main() {
+    if (uDistance <= 0.0) { fragColor = texture(uScene, vUV); return; }
+    float rad = radians(uAngle);
+    vec2 dir = vec2(cos(rad), sin(rad));
+    int samples = int(ceil(uDistance)) + 1;
+    vec4 sum = vec4(0.0);
+    int count = 0;
+    for (int s = -32; s <= 32; ++s) {
+        if (s < -samples / 2 || s > samples / 2) continue;
+        float t = (float(s) / float(samples)) * uDistance;
+        vec2 ofs = dir * t * uTexel;
+        sum += texture(uScene, vUV + ofs);
+        count++;
+    }
+    fragColor = sum / float(count);
+}
+)";
+
 } // namespace
 
 struct GpuRenderer::Impl
@@ -111,6 +171,8 @@ struct GpuRenderer::Impl
     std::unique_ptr<QOpenGLShaderProgram> program;      // 层合成
     std::unique_ptr<QOpenGLShaderProgram> postProgram;  // 调色 LUT
     std::unique_ptr<QOpenGLShaderProgram> blurProgram;  // 模糊 box blur
+    std::unique_ptr<QOpenGLShaderProgram> vignetteProgram; // 暗角
+    std::unique_ptr<QOpenGLShaderProgram> motionProgram;   // 动感模糊
     QSize lastSize;
     bool ready = false;
 };
@@ -177,6 +239,22 @@ QImage GpuRenderer::render(const Document &document) const
         d->blurProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragBlurSrc);
         if (!d->blurProgram->link()) {
             qCDebug(lcGpuRenderer) << "Blur shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
+        d->vignetteProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->vignetteProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->vignetteProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragVignetteSrc);
+        if (!d->vignetteProgram->link()) {
+            qCDebug(lcGpuRenderer) << "Vignette shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
+        d->motionProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->motionProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->motionProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragMotionBlurSrc);
+        if (!d->motionProgram->link()) {
+            qCDebug(lcGpuRenderer) << "Motion blur shader link failed, fallback";
             d->ctx->doneCurrent();
             return PainterRenderer().render(document);
         }
@@ -248,29 +326,64 @@ QImage GpuRenderer::render(const Document &document) const
 
     const bool hasLut = !document.renderLut().isNull();
     const int blurRadius = qBound(0, int(std::ceil(document.gaussianBlurRadius())), 64);
+    const bool hasVignette = document.vignetteAmount() > 0.0;
+    const double mbDistance = document.motionBlurDistance();
+    const bool hasMotion = mbDistance > 0.0;
 
-    // 当前"输入"纹理:先合成 fbo,经 blur 后变成 fbo2,经 LUT 后变成 fbo3
+    // 当前"输入"纹理;mid/dst 在多个 pass 中 ping-pong
     QOpenGLFramebufferObject *src = d->fbo.get();
-    QOpenGLFramebufferObject *mid = d->fbo2.get();
-    QOpenGLFramebufferObject *dst = d->fbo3.get();
+    QOpenGLFramebufferObject *fboA = d->fbo2.get();
+    QOpenGLFramebufferObject *fboB = d->fbo3.get();
 
-    // 3.4) 模糊(可分离 box blur,2 pass):fbo → fbo2(H) → fbo3(V)
+    // 通用单 pass 模板:把 src 写到 dst,返回 dst
+    auto runPass = [&](QOpenGLFramebufferObject *dst) {
+        d->ctx->makeCurrent(d->surface.get());
+        f->glBindFramebuffer(GL_FRAMEBUFFER, dst->handle());
+        f->glClearColor(0, 0, 0, 0);
+        f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glDisable(GL_BLEND);
+    };
+
+    // 通用:在 fboA/fboB 之间 ping-pong,执行 fragment program(p 已绑好 uniforms)
+    auto runScreenPass = [&](QOpenGLShaderProgram *prog, QOpenGLFramebufferObject *dst,
+                             const std::function<void()> &bindUniforms) {
+        d->ctx->makeCurrent(d->surface.get());
+        f->glBindFramebuffer(GL_FRAMEBUFFER, dst->handle());
+        f->glClearColor(0, 0, 0, 0);
+        f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glDisable(GL_BLEND);
+        prog->bind();
+        prog->enableAttributeArray(0);
+        prog->enableAttributeArray(1);
+        prog->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+        prog->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+        f->glActiveTexture(GL_TEXTURE0);
+        f->glBindTexture(GL_TEXTURE_2D, src->texture());
+        bindUniforms();
+        f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        prog->disableAttributeArray(0);
+        prog->disableAttributeArray(1);
+        prog->release();
+        f->glBindTexture(GL_TEXTURE_2D, 0);
+        f->glEnable(GL_BLEND);
+        src = dst;
+    };
+
+    // 3.4) 模糊(可分离 box blur,2 pass):fbo → fboA(H) → fboB(V)
     if (blurRadius > 0 && d->blurProgram) {
-        d->blurProgram->bind();
         const int locScene  = d->blurProgram->uniformLocation("uScene");
         const int locTexel  = d->blurProgram->uniformLocation("uTexel");
         const int locRadius = d->blurProgram->uniformLocation("uRadius");
         const int locHor    = d->blurProgram->uniformLocation("uHorizontal");
+        d->blurProgram->bind();
         d->blurProgram->enableAttributeArray(0);
         d->blurProgram->enableAttributeArray(1);
         d->blurProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
         d->blurProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
-
-        f->glDisable(GL_BLEND); // 覆盖式
-        // Pass 1:水平方向
-        f->glBindFramebuffer(GL_FRAMEBUFFER, mid->handle());
-        f->glClearColor(0, 0, 0, 0);
-        f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glDisable(GL_BLEND);
+        // Pass 1:水平
+        f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+        f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
         f->glActiveTexture(GL_TEXTURE0);
         f->glBindTexture(GL_TEXTURE_2D, src->texture());
         d->blurProgram->setUniformValue(locScene, 0);
@@ -278,35 +391,88 @@ QImage GpuRenderer::render(const Document &document) const
         d->blurProgram->setUniformValue(locRadius, blurRadius);
         d->blurProgram->setUniformValue(locHor, 1);
         f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        // Pass 2:垂直方向
-        f->glBindFramebuffer(GL_FRAMEBUFFER, dst->handle());
-        f->glClearColor(0, 0, 0, 0);
-        f->glClear(GL_COLOR_BUFFER_BIT);
+        // Pass 2:垂直
+        f->glBindFramebuffer(GL_FRAMEBUFFER, fboB->handle());
+        f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
         f->glActiveTexture(GL_TEXTURE0);
-        f->glBindTexture(GL_TEXTURE_2D, mid->texture());
+        f->glBindTexture(GL_TEXTURE_2D, fboA->texture());
         d->blurProgram->setUniformValue(locScene, 0);
         d->blurProgram->setUniformValue(locTexel, QVector2D(0.0f, 1.0f / float(targetSize.height())));
         d->blurProgram->setUniformValue(locRadius, blurRadius);
         d->blurProgram->setUniformValue(locHor, 0);
         f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
         d->blurProgram->disableAttributeArray(0);
         d->blurProgram->disableAttributeArray(1);
         d->blurProgram->release();
         f->glBindTexture(GL_TEXTURE_2D, 0);
         f->glEnable(GL_BLEND);
-
-        src = dst; // 模糊结果作为下一阶段输入
-        // 若无 LUT,把结果换回 mid 以统一"dst 即最终"
-        if (!hasLut) {
-            // 把 dst 内容(blit)到 mid,后面 readback 从 mid
-            // 简化:直接让 src = dst,readback 时检测 hasLut
-        }
+        src = fboB;
     }
 
-    // 3.5) 调色后处理 pass:src → mid(dst 用于调色)
+    // 3.5) 动感模糊 src → 另一 fbo
+    if (hasMotion && d->motionProgram) {
+        const int locScene = d->motionProgram->uniformLocation("uScene");
+        const int locDist  = d->motionProgram->uniformLocation("uDistance");
+        const int locAng   = d->motionProgram->uniformLocation("uAngle");
+        const int locTexel = d->motionProgram->uniformLocation("uTexel");
+        d->motionProgram->bind();
+        d->motionProgram->enableAttributeArray(0);
+        d->motionProgram->enableAttributeArray(1);
+        d->motionProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+        d->motionProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+        f->glDisable(GL_BLEND);
+        f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+        f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glActiveTexture(GL_TEXTURE0);
+        f->glBindTexture(GL_TEXTURE_2D, src->texture());
+        d->motionProgram->setUniformValue(locScene, 0);
+        d->motionProgram->setUniformValue(locDist, float(mbDistance));
+        d->motionProgram->setUniformValue(locAng, float(document.motionBlurAngle()));
+        d->motionProgram->setUniformValue(locTexel, QVector2D(1.0f / float(targetSize.width()),
+                                                              1.0f / float(targetSize.height())));
+        f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        d->motionProgram->disableAttributeArray(0);
+        d->motionProgram->disableAttributeArray(1);
+        d->motionProgram->release();
+        f->glBindTexture(GL_TEXTURE_2D, 0);
+        f->glEnable(GL_BLEND);
+        src = fboA;
+    }
+
+    // 3.6) 暗角 src → 另一 fbo
+    if (hasVignette && d->vignetteProgram) {
+        const int locScene = d->vignetteProgram->uniformLocation("uScene");
+        const int locAmt   = d->vignetteProgram->uniformLocation("uAmount");
+        const int locMid   = d->vignetteProgram->uniformLocation("uMid");
+        const int locRound = d->vignetteProgram->uniformLocation("uRound");
+        const int locFeat  = d->vignetteProgram->uniformLocation("uFeather");
+        d->vignetteProgram->bind();
+        d->vignetteProgram->enableAttributeArray(0);
+        d->vignetteProgram->enableAttributeArray(1);
+        d->vignetteProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+        d->vignetteProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+        f->glDisable(GL_BLEND);
+        f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+        f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glActiveTexture(GL_TEXTURE0);
+        f->glBindTexture(GL_TEXTURE_2D, src->texture());
+        d->vignetteProgram->setUniformValue(locScene, 0);
+        d->vignetteProgram->setUniformValue(locAmt, float(document.vignetteAmount()) / 100.0f);
+        d->vignetteProgram->setUniformValue(locMid, float(document.vignetteMidpoint()) / 100.0f);
+        d->vignetteProgram->setUniformValue(locRound, float(document.vignetteRoundness()) / 100.0f);
+        d->vignetteProgram->setUniformValue(locFeat, float(document.vignetteFeather()) / 100.0f);
+        f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        d->vignetteProgram->disableAttributeArray(0);
+        d->vignetteProgram->disableAttributeArray(1);
+        d->vignetteProgram->release();
+        f->glBindTexture(GL_TEXTURE_2D, 0);
+        f->glEnable(GL_BLEND);
+        src = fboA;
+    }
+
+    // 3.7) 调色后处理 pass
     if (hasLut && d->postProgram) {
-        f->glBindFramebuffer(GL_FRAMEBUFFER, mid->handle());
+        f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
         f->glClearColor(0, 0, 0, 0);
         f->glClear(GL_COLOR_BUFFER_BIT);
         f->glDisable(GL_BLEND);
@@ -341,7 +507,7 @@ QImage GpuRenderer::render(const Document &document) const
         f->glBindTexture(GL_TEXTURE_2D, 0);
         f->glEnable(GL_BLEND);
 
-        src = mid; // LUT 后结果在 mid
+        src = fboA;
     }
 
     f->glBindFramebuffer(GL_FRAMEBUFFER, 0);

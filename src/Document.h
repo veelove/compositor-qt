@@ -41,6 +41,20 @@ public:
     double gaussianBlurRadius() const { return m_gaussianBlurRadius; }
     void setGaussianBlurRadius(double radius);
 
+    // 渲染期暗角(非破坏性;amount<=0 不应用)
+    double vignetteAmount() const { return m_vignette.amount; }
+    double vignetteMidpoint() const { return m_vignette.midpoint; }
+    double vignetteRoundness() const { return m_vignette.roundness; }
+    double vignetteFeather() const { return m_vignette.feather; }
+    void setVignette(double amount, double midpoint, double roundness, double feather);
+    void clearVignette();
+
+    // 渲染期动感模糊(非破坏性;distance<=0 不应用)
+    double motionBlurDistance() const { return m_motionBlur.distance; }
+    double motionBlurAngle() const { return m_motionBlur.angle; }
+    void setMotionBlur(double distance, double angle);
+    void clearMotionBlur();
+
     // 每个 Document 独立的撤销栈
     QUndoStack *undoStack() { return &m_undoStack; }
 
@@ -55,5 +69,7 @@ private:
     Layer *m_activeLayer = nullptr;
     adj::AdjustLut m_renderLut;
     double m_gaussianBlurRadius = 0.0;
+    struct VignetteParams { double amount = 0, midpoint = 50, roundness = 100, feather = 60; } m_vignette;
+    struct MotionBlurParams { double distance = 0, angle = 0; } m_motionBlur;
     QUndoStack m_undoStack;
 };

@@ -71,6 +71,10 @@ private:
     // 非破坏性高斯模糊(GPU 加速预览,走 GaussianBlurCommand)
     void adjGaussianBlurLive();
 
+    // 非破坏性暗角 / 动感模糊(GPU 加速预览)
+    void adjVignetteLive();
+    void adjMotionBlurLive();
+
     void onColorPicked(const QColor &color);
     void onUndoStackChanged();
 
@@ -112,4 +116,6 @@ private:
     QAction *m_adjInvertAction = nullptr;
     QAction *m_adjResetAction = nullptr;
     QAction *m_adjGaussianLiveAction = nullptr;
+    QAction *m_adjVignetteLiveAction = nullptr;
+    QAction *m_adjMotionBlurLiveAction = nullptr;
 };

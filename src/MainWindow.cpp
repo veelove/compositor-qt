@@ -504,6 +504,53 @@ void MainWindow::adjGaussianBlurLive()
     statusBar()->showMessage(tr("已应用高斯模糊(GPU 预览)"), 3000);
 }
 
+void MainWindow::adjVignetteLive()
+{
+    Document *doc = currentDocument();
+    if (!doc) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    bool ok = false;
+    const int amount = QInputDialog::getInt(this, tr("暗角(GPU 预览)"),
+                                            tr("数量(0-100)"), int(doc->vignetteAmount()), 0, 100, 1, &ok);
+    if (!ok) return;
+    const int mid = QInputDialog::getInt(this, tr("暗角 · 中点"), tr("中点(0-100)"),
+                                         int(doc->vignetteMidpoint()), 0, 100, 1, &ok);
+    if (!ok) return;
+    const int round = QInputDialog::getInt(this, tr("暗角 · 圆度"), tr("圆度(-100~100)"),
+                                            int(doc->vignetteRoundness()), -100, 100, 1, &ok);
+    if (!ok) return;
+    const int feather = QInputDialog::getInt(this, tr("暗角 · 羽化"), tr("羽化(0-100)"),
+                                             int(doc->vignetteFeather()), 0, 100, 1, &ok);
+    if (!ok) return;
+    doc->undoStack()->push(new VignetteCommand(doc,
+                                               doc->vignetteAmount(), doc->vignetteMidpoint(),
+                                               doc->vignetteRoundness(), doc->vignetteFeather(),
+                                               double(amount), double(mid), double(round), double(feather)));
+    statusBar()->showMessage(tr("已应用暗角(GPU 预览)"), 3000);
+}
+
+void MainWindow::adjMotionBlurLive()
+{
+    Document *doc = currentDocument();
+    if (!doc) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    bool ok = false;
+    const int dist = QInputDialog::getInt(this, tr("动感模糊(GPU 预览)"),
+                                          tr("距离(像素)"), int(doc->motionBlurDistance()), 0, 100, 1, &ok);
+    if (!ok) return;
+    const int angle = QInputDialog::getInt(this, tr("动感模糊 · 角度"), tr("角度(度)"),
+                                           int(doc->motionBlurAngle()), 0, 360, 1, &ok);
+    if (!ok) return;
+    doc->undoStack()->push(new MotionBlurCommand(doc,
+                                                 doc->motionBlurDistance(), doc->motionBlurAngle(),
+                                                 double(dist), double(angle)));
+    statusBar()->showMessage(tr("已应用动感模糊(GPU 预览)"), 3000);
+}
+
 // ---------------------------------------------------------------------------
 // UI 构造
 // ---------------------------------------------------------------------------
@@ -589,6 +636,12 @@ void MainWindow::createActions()
     connect(m_adjGaussianLiveAction, &QAction::triggered, this, &MainWindow::adjGaussianBlurLive);
 }
 
+    m_adjVignetteLiveAction = new QAction(tr("Vignette (GPU)..."), this);
+    connect(m_adjVignetteLiveAction, &QAction::triggered, this, &MainWindow::adjVignetteLive);
+    m_adjMotionBlurLiveAction = new QAction(tr("Motion Blur (GPU)..."), this);
+    connect(m_adjMotionBlurLiveAction, &QAction::triggered, this, &MainWindow::adjMotionBlurLive);
+}
+
 void MainWindow::createMenus()
 {
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
@@ -628,6 +681,8 @@ void MainWindow::createMenus()
     imageMenu->addAction(m_adjInvertAction);
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjGaussianLiveAction);
+    imageMenu->addAction(m_adjVignetteLiveAction);
+    imageMenu->addAction(m_adjMotionBlurLiveAction);
     imageMenu->addAction(m_adjResetAction);
 }
 

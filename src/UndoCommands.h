@@ -83,6 +83,39 @@ private:
     double m_after;
 };
 
+// 暗角(非破坏性,4 维参数 before/after)
+class VignetteCommand : public QUndoCommand
+{
+public:
+    VignetteCommand(Document *document,
+                    double bAmount, double bMidpoint, double bRoundness, double bFeather,
+                    double aAmount, double aMidpoint, double aRoundness, double aFeather,
+                    QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    double m_bAmount, m_bMid, m_bRound, m_bFeather;
+    double m_aAmount, m_aMid, m_aRound, m_aFeather;
+};
+
+// 动感模糊(非破坏性,distance/angle before/after)
+class MotionBlurCommand : public QUndoCommand
+{
+public:
+    MotionBlurCommand(Document *document,
+                      double bDistance, double bAngle,
+                      double aDistance, double aAngle,
+                      QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    double m_bDistance, m_bAngle, m_aDistance, m_aAngle;
+};
+
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。
 class AddLayerCommand : public QUndoCommand
 {

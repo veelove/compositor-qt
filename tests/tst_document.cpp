@@ -74,6 +74,9 @@ private slots:
     void documentGaussianBlurRadius();
     void gaussianBlurCommandUndoRedo();
     void gpuGaussianBlurConsistency();
+    void vignetteAndMotionBlurOnDocument();
+    void vignetteAndMotionBlurCommandUndoRedo();
+    void gpuVignetteAndMotionConsistency();
 };
 
 void TestDocument::addRemoveLayer()

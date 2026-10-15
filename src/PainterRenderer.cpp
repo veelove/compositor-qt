@@ -30,6 +30,23 @@ QImage PainterRenderer::render(const Document &document) const
         canvas = flat;
     }
 
+    // 渲染期动感模糊(CPU fallback)
+    if (document.motionBlurDistance() > 0.0) {
+        QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+        flat = filt::motionBlur(flat, document.motionBlurDistance(), document.motionBlurAngle());
+        canvas = flat;
+    }
+
+    // 渲染期暗角(CPU fallback)
+    if (document.vignetteAmount() > 0.0) {
+        QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+        flat = filt::vignette(flat, document.vignetteAmount(),
+                              Qt::black, // GPU shader 也只向黑色混合;颜色参数 MVP 简化
+                              document.vignetteMidpoint(), document.vignetteRoundness(),
+                              document.vignetteFeather());
+        canvas = flat;
+    }
+
     // 渲染期全局调色(非破坏性后处理)
     if (!document.renderLut().isNull()) {
         QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);

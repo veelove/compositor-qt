@@ -148,6 +148,54 @@ void GaussianBlurCommand::redo()
 }
 
 // ---------------------------------------------------------------------------
+// VignetteCommand
+// ---------------------------------------------------------------------------
+VignetteCommand::VignetteCommand(Document *document,
+                                 double bAmount, double bMidpoint, double bRoundness, double bFeather,
+                                 double aAmount, double aMidpoint, double aRoundness, double aFeather,
+                                 QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Vignette"), parent)
+    , m_document(document)
+    , m_bAmount(bAmount), m_bMid(bMidpoint), m_bRound(bRoundness), m_bFeather(bFeather)
+    , m_aAmount(aAmount), m_aMid(aMidpoint), m_aRound(aRoundness), m_aFeather(aFeather)
+{
+}
+
+void VignetteCommand::undo()
+{
+    m_document->setVignette(m_bAmount, m_bMid, m_bRound, m_bFeather);
+}
+
+void VignetteCommand::redo()
+{
+    m_document->setVignette(m_aAmount, m_aMid, m_aRound, m_aFeather);
+}
+
+// ---------------------------------------------------------------------------
+// MotionBlurCommand
+// ---------------------------------------------------------------------------
+MotionBlurCommand::MotionBlurCommand(Document *document,
+                                      double bDistance, double bAngle,
+                                      double aDistance, double aAngle,
+                                      QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Motion Blur"), parent)
+    , m_document(document)
+    , m_bDistance(bDistance), m_bAngle(bAngle)
+    , m_aDistance(aDistance), m_aAngle(aAngle)
+{
+}
+
+void MotionBlurCommand::undo()
+{
+    m_document->setMotionBlur(m_bDistance, m_bAngle);
+}
+
+void MotionBlurCommand::redo()
+{
+    m_document->setMotionBlur(m_aDistance, m_aAngle);
+}
+
+// ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
 AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QUndoCommand *parent)
