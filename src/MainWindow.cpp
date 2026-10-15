@@ -634,7 +634,6 @@ void MainWindow::createActions()
 
     m_adjGaussianLiveAction = new QAction(tr("Gaussian Blur (GPU)..."), this);
     connect(m_adjGaussianLiveAction, &QAction::triggered, this, &MainWindow::adjGaussianBlurLive);
-}
 
     m_adjVignetteLiveAction = new QAction(tr("Vignette (GPU)..."), this);
     connect(m_adjVignetteLiveAction, &QAction::triggered, this, &MainWindow::adjVignetteLive);
