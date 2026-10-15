@@ -8,6 +8,7 @@
 #include "GpuRenderer.h"
 #include "Layer.h"
 #include "RawProvider.h"
+#include "VisionProvider.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
 #include "PsdWriter.h"
@@ -86,6 +87,7 @@ private slots:
     void gpuHsvBwCbConsistency();
     void rawProviderExtensions();
     void rawProviderFactoryAndStub();
+    void visionProviderFactoryAndStub();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1422,6 +1424,23 @@ void TestDocument::rawProviderFactoryAndStub()
     QVERIFY(!ok);
     QVERIFY(!err.isEmpty());
     QVERIFY(img.isNull());
+}
+
+void TestDocument::visionProviderFactoryAndStub()
+{
+    // 工厂:有/无 vision_tool.py 都应返回非空
+    std::unique_ptr<VisionProvider> vp(VisionProvider::create());
+    QVERIFY(vp != nullptr);
+
+    // 调用:返回 false + 非空错误
+    QImage img(8, 8, QImage::Format_ARGB32);
+    img.fill(QColor(120, 80, 200));
+    QImage mask;
+    QString err;
+    const bool ok = vp->selectObject(img, QPoint(4, 4), mask, &err);
+    QVERIFY(!ok);
+    QVERIFY(!err.isEmpty());
+    QVERIFY(mask.isNull());
 }
 
 QTEST_MAIN(TestDocument)

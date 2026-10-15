@@ -83,6 +83,7 @@ private:
     void adjColorBalanceLive();
 
     void onColorPicked(const QColor &color);
+    void onMagicWand(const QPoint &canvasPos);
     void onUndoStackChanged();
 
     QTabWidget *m_tabs = nullptr;
@@ -114,6 +115,7 @@ private:
     QAction *m_toolMoveAction = nullptr;
     QAction *m_toolEyedropperAction = nullptr;
     QAction *m_toolSelectAction = nullptr;
+    QAction *m_toolMagicWandAction = nullptr;
     // Adjustments(Image 菜单)
     QAction *m_adjLevelsAction = nullptr;
     QAction *m_adjBcAction = nullptr;

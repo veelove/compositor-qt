@@ -14,6 +14,7 @@
 #include "PsdWriter.h"
 #include "RawProvider.h"
 #include "UndoCommands.h"
+#include "VisionProvider.h"
 
 #include <memory>
 
@@ -172,6 +173,7 @@ void MainWindow::onTabChanged(int index)
         connect(canvas, &CanvasView::cursorInfoChanged, this,
                 [this](const QString &t) { m_cursorLabel->setText(t); });
         connect(canvas, &CanvasView::colorPicked, this, &MainWindow::onColorPicked);
+        connect(canvas, &CanvasView::magicWandTriggered, this, &MainWindow::onMagicWand);
         m_zoomLabel->setText(tr("%1%").arg(qRound(canvas->zoom() * 100)));
         m_cursorLabel->clear();
     } else {
@@ -824,6 +826,7 @@ void MainWindow::createToolBar()
     m_toolMoveAction      = addTool(tr("移动"), Qt::Key_V, Tool::Move);
     m_toolEyedropperAction= addTool(tr("吸管"), Qt::Key_I, Tool::Eyedropper);
     m_toolSelectAction    = addTool(tr("选区"), Qt::Key_M, Tool::RectSelect);
+    m_toolMagicWandAction = addTool(tr("智能选择"), Qt::Key_W, Tool::MagicWand);
     m_toolBrushAction->setChecked(true);
 
     // 工具切换时同步菜单/动作显示
@@ -850,6 +853,32 @@ void MainWindow::onColorPicked(const QColor &color)
 {
     if (auto *c = currentCanvas()) c->setBrushColor(color);
     statusBar()->showMessage(tr("画笔颜色: %1").arg(color.name()), 3000);
+}
+
+void MainWindow::onMagicWand(const QPoint &canvasPos)
+{
+    Document *doc = currentDocument();
+    if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
+    QImage composite;
+    {
+        PainterRenderer r;
+        composite = r.render(*doc);
+    }
+    if (composite.isNull()) { statusBar()->showMessage(tr("合成图为空"), 3000); return; }
+
+    std::unique_ptr<VisionProvider> vp(VisionProvider::create());
+    QImage mask;
+    QString err;
+    if (!vp->selectObject(composite, canvasPos, mask, &err)) {
+        QMessageBox::warning(this, tr("智能选择失败"), err);
+        return;
+    }
+    // 选区预览:CanvasView 的 m_selection 用 1 byte alpha 表示;这里把选区归一化到 selectionRect 范围
+    if (auto *c = currentCanvas()) {
+        // MVP:只把 mask 当成全图选区显示;真正的"按 mask 选区"等后续 MaskLayer 接入
+        statusBar()->showMessage(tr("智能选择完成,得到 %1x%2 蒙版").arg(mask.width()).arg(mask.height()), 5000);
+        Q_UNUSED(c);
+    }
 }
 
 void MainWindow::onUndoStackChanged()

@@ -28,7 +28,7 @@ qt_add_library(CompositorCore STATIC
     src/Filters.h src/Filters.cpp
     src/Geometry.h src/Geometry.cpp
     src/RawProvider.h src/RawProvider.cpp
-    src/VisionProvider.h
+    src/VisionProvider.h src/VisionProvider.cpp
 )
 target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui Qt6::OpenGL)
@@ -52,6 +52,8 @@ endif()
 
 include(GNUInstallDirs)
 install(TARGETS CompositorQt RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# Python 桥脚本:与可执行文件同目录(PROCESS_VISION 探测路径优先),便于 VisionProvider 直接找到
+install(FILES tools/vision_tool.py DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # ---- 测试 ----
 enable_testing()

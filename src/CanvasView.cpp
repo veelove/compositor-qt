@@ -54,6 +54,7 @@ void CanvasView::updateCursor()
     case Tool::Eyedropper:
     case Tool::Brush:
     case Tool::RectSelect:
+    case Tool::MagicWand:
         setCursor(Qt::CrossCursor);
         break;
     }
@@ -201,6 +202,9 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         break;
     case Tool::RectSelect:
         beginSelect(canvasPos);
+        break;
+    case Tool::MagicWand:
+        emit magicWandTriggered(canvasPos);
         break;
     }
     event->accept();

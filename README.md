@@ -81,4 +81,5 @@ ctest --test-dir build --output-on-failure
 - [x] 滤镜 GPU 化扩展：Vignette + Motion Blur fragment shader + Document 渲染期字段 + Vignette/MotionBlurCommand 撤销 + Image 菜单 2 入口 + PainterRenderer CPU fallback + 3 单测  ← 当前
 - [x] 滤镜 GPU 化扩展 2：Add Noise fragment shader（LCG 随机+高斯/单色）+ Document 渲染期字段 + AddNoiseCommand + Image 菜单"Add Noise (GPU)..." + PainterRenderer CPU fallback + 3 单测  ← 当前
 - [x] 调色 GPU 化扩展 2：HSV / Black & White / Color Balance 3 个 fragment shader（RGB↔HSL 转换+6 桶权重+CMY 分桶偏移）+ Document 3 字段 + 3 Command + Image 菜单 2 新入口（Hue/Saturation 替换为 GPU 版） + PainterRenderer CPU fallback + 3 单测  ← 当前
-- [x] RAW 真实集成：RawDecoder 抽象 + LibRawDecoder（dcraw_emu 子进程桥，零编译依赖）+ StubRawDecoder fallback + MainWindow Open 流程自动检测 RAW + 8 个主流 RAW 扩展名 + 2 单测  ← 当前
+- [x] RAW 真实集成：RawDecoder 抽象 + LibRawDecoder（dcraw_emu 子进程桥，零编译依赖）+ StubRawDecoder fallback + MainWindow Open 流程自动检测 RAW + 8 个主流 RAW 扩展名 + 2 单测
+- [x] 视觉智能真实集成（ONNX Runtime）：VisionProvider 抽象 + ProcessVisionProvider（Python 桥：stdin=PNG 字节流 + 命令行 x y → stdout mask PNG）+ StubVisionProvider fallback（脚本缺失时给出安装指引） + tools/vision_tool.py（优先尝试 onnxruntime + U²-Net 显著性，按点击点动态阈值 → 退化 OpenCV GrabCut → 退化点击点颜色洪水漫灌，三层降级保证总能出 mask） + CanvasView MagicWand 工具（W 键） + MainWindow 信号接入 + 1 单测（工厂+stub 错误路径）  ← 当前

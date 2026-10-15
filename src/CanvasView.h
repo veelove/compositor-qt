@@ -22,7 +22,8 @@ enum class Tool
     Brush,      // 画笔
     Move,       // 移动图层
     Eyedropper, // 吸管取色
-    RectSelect  // 矩形选区(Delete 清除)
+    RectSelect, // 矩形选区(Delete 清除)
+    MagicWand   // 智能选择(基于视觉智能,产生 alpha 蒙版)
 };
 
 class CanvasView : public QWidget
@@ -52,6 +53,7 @@ signals:
     void cursorInfoChanged(const QString &text);
     void toolChanged(Tool tool);
     void colorPicked(const QColor &color); // 吸管取色
+    void magicWandTriggered(const QPoint &canvasPos); // 智能选择(单点)
 
 protected:
     void paintEvent(QPaintEvent *event) override;
