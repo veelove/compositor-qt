@@ -231,7 +231,8 @@ class SelectionCommand : public QUndoCommand
 {
 public:
     SelectionCommand(CanvasView *canvas, const QRect &before, const QRect &after,
-                     const QImage &beforeMask = {}, const QImage &afterMask = {},
+                     const QImage &beforeMask = QImage(),
+                     const QImage &afterMask = QImage(),
                      QUndoCommand *parent = nullptr);
     void undo() override;
     void redo() override;

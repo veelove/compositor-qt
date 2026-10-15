@@ -1,5 +1,6 @@
 #include "UndoCommands.h"
 
+#include "CanvasView.h"
 #include "Document.h"
 #include "Layer.h"
 

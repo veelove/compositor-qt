@@ -92,7 +92,6 @@ private:
     void beginSelect(const QPoint &canvasPos);
     void dragSelect(const QPoint &canvasPos);
     void endSelect();
-    void clearSelection();
     void drawSelectionOverlay(QPainter &p, const QRectF &docRect);
 
     Document *m_document = nullptr;
