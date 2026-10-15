@@ -69,9 +69,7 @@ bool StubRawDecoder::decode(const QString &path, QImage &out, QString *error)
     Q_UNUSED(out);
     if (error) {
         *error = QStringLiteral(
-            "未找到 dcraw_emu(LibRaw CLI);无法解码 RAW %1。
-"
-            "安装 LibRaw 后重试,或将相机 RAW 转为 TIFF/DNG 在 Photoshop 打开。")
+            "未找到 dcraw_emu(LibRaw CLI);无法解码 RAW %1。安装 LibRaw 后重试,或将相机 RAW 转为 TIFF/DNG 在 Photoshop 打开。")
             .arg(path);
     }
     return false;
