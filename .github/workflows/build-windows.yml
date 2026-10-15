@@ -27,7 +27,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: pwd && which cmake && cmake --version && cmake --build build > build.log 2>&1; BUILD_EXIT=$?; echo "BUILD_EXIT=$BUILD_EXIT"; echo "BUILD_EXIT=$BUILD_EXIT" >> build.log
+        run: cmake --build build
       - name: Append build log to summary
         if: always()
         shell: bash
