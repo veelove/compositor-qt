@@ -18,6 +18,7 @@
 #include <QActionGroup>
 #include <QCloseEvent>
 #include <QDockWidget>
+#include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -551,6 +552,35 @@ void MainWindow::adjMotionBlurLive()
     statusBar()->showMessage(tr("已应用动感模糊(GPU 预览)"), 3000);
 }
 
+void MainWindow::adjAddNoiseLive()
+{
+    Document *doc = currentDocument();
+    if (!doc) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    bool ok = false;
+    const int amount = QInputDialog::getInt(this, tr("杂色(GPU 预览)"),
+                                            tr("数量(0-100)"), int(doc->noiseAmount()), 0, 100, 1, &ok);
+    if (!ok) return;
+    // gaussian/mono 用 QMessageBox 简易选择(避免新对话框)
+    const QMessageBox::StandardButton g = QMessageBox::question(
+        this, tr("杂色 · 分布"), tr("高斯分布?"), QMessageBox::Yes | QMessageBox::No,
+        doc->noiseGaussian() ? QMessageBox::Yes : QMessageBox::No);
+    if (g == QMessageBox::Cancel) return; // 不会发生(只有 Yes/No),但避免 IDE 警告
+    const QMessageBox::StandardButton m = QMessageBox::question(
+        this, tr("杂色 · 单色"), tr("单色(灰度)?") , QMessageBox::Yes | QMessageBox::No,
+        doc->noiseMonochromatic() ? QMessageBox::Yes : QMessageBox::No);
+    const bool mono = (m == QMessageBox::Yes);
+    const quint32 seed = quint32(QDateTime::currentMSecsSinceEpoch() & 0xFFFFFFFFu);
+    doc->undoStack()->push(new AddNoiseCommand(doc,
+                                               doc->noiseAmount(), doc->noiseGaussian(),
+                                               doc->noiseMonochromatic(), doc->noiseSeed(),
+                                               double(amount), g == QMessageBox::Yes,
+                                               mono, seed));
+    statusBar()->showMessage(tr("已应用杂色(GPU 预览)"), 3000);
+}
+
 // ---------------------------------------------------------------------------
 // UI 构造
 // ---------------------------------------------------------------------------
@@ -641,6 +671,10 @@ void MainWindow::createActions()
     connect(m_adjMotionBlurLiveAction, &QAction::triggered, this, &MainWindow::adjMotionBlurLive);
 }
 
+    m_adjNoiseLiveAction = new QAction(tr("Add Noise (GPU)..."), this);
+    connect(m_adjNoiseLiveAction, &QAction::triggered, this, &MainWindow::adjAddNoiseLive);
+}
+
 void MainWindow::createMenus()
 {
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
@@ -682,6 +716,7 @@ void MainWindow::createMenus()
     imageMenu->addAction(m_adjGaussianLiveAction);
     imageMenu->addAction(m_adjVignetteLiveAction);
     imageMenu->addAction(m_adjMotionBlurLiveAction);
+    imageMenu->addAction(m_adjNoiseLiveAction);
     imageMenu->addAction(m_adjResetAction);
 }
 

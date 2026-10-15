@@ -79,3 +79,4 @@ ctest --test-dir build --output-on-failure
 - [x] 多文档标签页：QTabWidget + DocumentTab（Canvas+Document+Path）+ Document 自带 QUndoStack + 切换 tab 同步 Canvas/Layers/Undo 信号 + 修改标记 + Ctrl-W 关闭 + 2 单测
 - [x] 滤镜 GPU 化：Gaussian Blur 可分离 box-blur fragment shader（2 pass H/V）+ Document 非破坏性 blur radius + GaussianBlurCommand + Image 菜单"Gaussian Blur (GPU)..." + PainterRenderer CPU fallback + 3 单测
 - [x] 滤镜 GPU 化扩展：Vignette + Motion Blur fragment shader + Document 渲染期字段 + Vignette/MotionBlurCommand 撤销 + Image 菜单 2 入口 + PainterRenderer CPU fallback + 3 单测  ← 当前
+- [x] 滤镜 GPU 化扩展 2：Add Noise fragment shader（LCG 随机+高斯/单色）+ Document 渲染期字段 + AddNoiseCommand + Image 菜单"Add Noise (GPU)..." + PainterRenderer CPU fallback + 3 单测  ← 当前

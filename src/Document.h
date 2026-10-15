@@ -55,6 +55,14 @@ public:
     void setMotionBlur(double distance, double angle);
     void clearMotionBlur();
 
+    // 渲染期添加杂色(非破坏性;amount<=0 不应用)
+    double noiseAmount() const { return m_noise.amount; }
+    bool noiseGaussian() const { return m_noise.gaussian; }
+    bool noiseMonochromatic() const { return m_noise.monochromatic; }
+    quint32 noiseSeed() const { return m_noise.seed; }
+    void setAddNoise(double amount, bool gaussian, bool monochromatic, quint32 seed);
+    void clearAddNoise();
+
     // 每个 Document 独立的撤销栈
     QUndoStack *undoStack() { return &m_undoStack; }
 
@@ -71,5 +79,6 @@ private:
     double m_gaussianBlurRadius = 0.0;
     struct VignetteParams { double amount = 0, midpoint = 50, roundness = 100, feather = 60; } m_vignette;
     struct MotionBlurParams { double distance = 0, angle = 0; } m_motionBlur;
+    struct NoiseParams { double amount = 0; bool gaussian = true; bool monochromatic = false; quint32 seed = 0; } m_noise;
     QUndoStack m_undoStack;
 };

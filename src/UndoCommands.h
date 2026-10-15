@@ -116,6 +116,24 @@ private:
     double m_bDistance, m_bAngle, m_aDistance, m_aAngle;
 };
 
+// 杂色(非破坏性,amount/gaussian/monochromatic/seed before/after)
+class AddNoiseCommand : public QUndoCommand
+{
+public:
+    AddNoiseCommand(Document *document,
+                    double bAmount, bool bGaussian, bool bMono, quint32 bSeed,
+                    double aAmount, bool aGaussian, bool aMono, quint32 aSeed,
+                    QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    double m_bAmount, m_aAmount;
+    bool m_bGauss, m_aGauss, m_bMono, m_aMono;
+    quint32 m_bSeed, m_aSeed;
+};
+
 // 添加图层:redo 加入文档,undo 移除(图层所有权在命令与文档间转移)。
 class AddLayerCommand : public QUndoCommand
 {

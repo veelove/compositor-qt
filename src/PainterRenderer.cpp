@@ -41,9 +41,18 @@ QImage PainterRenderer::render(const Document &document) const
     if (document.vignetteAmount() > 0.0) {
         QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
         flat = filt::vignette(flat, document.vignetteAmount(),
-                              Qt::black, // GPU shader 也只向黑色混合;颜色参数 MVP 简化
+                              Qt::black,
                               document.vignetteMidpoint(), document.vignetteRoundness(),
                               document.vignetteFeather());
+        canvas = flat;
+    }
+
+    // 渲染期杂色(CPU fallback)
+    if (document.noiseAmount() > 0.0) {
+        QImage flat = canvas.convertToFormat(QImage::Format_ARGB32);
+        flat = filt::addNoise(flat, document.noiseAmount(),
+                              document.noiseGaussian(), document.noiseMonochromatic(),
+                              document.noiseSeed());
         canvas = flat;
     }
 

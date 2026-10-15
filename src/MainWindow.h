@@ -74,6 +74,8 @@ private:
     // 非破坏性暗角 / 动感模糊(GPU 加速预览)
     void adjVignetteLive();
     void adjMotionBlurLive();
+    // 非破坏性杂色(GPU 加速预览)
+    void adjAddNoiseLive();
 
     void onColorPicked(const QColor &color);
     void onUndoStackChanged();
@@ -118,4 +120,5 @@ private:
     QAction *m_adjGaussianLiveAction = nullptr;
     QAction *m_adjVignetteLiveAction = nullptr;
     QAction *m_adjMotionBlurLiveAction = nullptr;
+    QAction *m_adjNoiseLiveAction = nullptr;
 };

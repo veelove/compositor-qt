@@ -159,6 +159,50 @@ void main() {
 }
 )";
 
+// 杂色 shader:每像素基于 LCG 随机数加扰动
+// uAmount:0-100 强度;uGaussian:1=双 LCG 平均(高斯);uMono:1=单色通道;uSeed:种子
+constexpr const char *kFragNoiseSrc = R"(
+#version 330 core
+in vec2 vUV;
+uniform sampler2D uScene;
+uniform float uAmount;
+uniform int uGaussian;
+uniform int uMono;
+uniform uint uSeed;
+out vec4 fragColor;
+uint lcg(uint s) { return s * 1664525u + 1013904223u; }
+float lcgUnit(uint s) {
+    uint v = lcg(s);
+    return (float(v) / 4294967295.0) * 2.0 - 1.0;
+}
+float noiseSample(uint s) {
+    if (uGaussian == 1) return (lcgUnit(s) + lcgUnit(lcg(s))) * 0.5;
+    return lcgUnit(s);
+}
+void main() {
+    vec4 c = texture(uScene, vUV);
+    if (uAmount <= 0.0) { fragColor = c; return; }
+    float strength = (uAmount / 100.0) * 255.0 / 2.0;
+    ivec2 pix = ivec2(gl_FragCoord.xy);
+    uint base = uSeed + uint(pix.y) * 1973u + uint(pix.x) * 9277u;
+    if (uMono == 1) {
+        float n = noiseSample(base);
+        float d = n * strength;
+        c.r = clamp(c.r + d, 0.0, 1.0);
+        c.g = clamp(c.g + d, 0.0, 1.0);
+        c.b = clamp(c.b + d, 0.0, 1.0);
+    } else {
+        float n1 = noiseSample(base);
+        float n2 = noiseSample(base + 0x9E3779B9u);
+        float n3 = noiseSample(base + 0x85EBCA77u);
+        c.r = clamp(c.r + n1 * strength, 0.0, 1.0);
+        c.g = clamp(c.g + n2 * strength, 0.0, 1.0);
+        c.b = clamp(c.b + n3 * strength, 0.0, 1.0);
+    }
+    fragColor = c;
+}
+)";
+
 } // namespace
 
 struct GpuRenderer::Impl
@@ -173,6 +217,7 @@ struct GpuRenderer::Impl
     std::unique_ptr<QOpenGLShaderProgram> blurProgram;  // 模糊 box blur
     std::unique_ptr<QOpenGLShaderProgram> vignetteProgram; // 暗角
     std::unique_ptr<QOpenGLShaderProgram> motionProgram;   // 动感模糊
+    std::unique_ptr<QOpenGLShaderProgram> noiseProgram;    // 杂色
     QSize lastSize;
     bool ready = false;
 };
@@ -255,6 +300,14 @@ QImage GpuRenderer::render(const Document &document) const
         d->motionProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragMotionBlurSrc);
         if (!d->motionProgram->link()) {
             qCDebug(lcGpuRenderer) << "Motion blur shader link failed, fallback";
+            d->ctx->doneCurrent();
+            return PainterRenderer().render(document);
+        }
+        d->noiseProgram = std::make_unique<QOpenGLShaderProgram>();
+        d->noiseProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc);
+        d->noiseProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragNoiseSrc);
+        if (!d->noiseProgram->link()) {
+            qCDebug(lcGpuRenderer) << "Noise shader link failed, fallback";
             d->ctx->doneCurrent();
             return PainterRenderer().render(document);
         }
@@ -465,6 +518,37 @@ QImage GpuRenderer::render(const Document &document) const
         d->vignetteProgram->disableAttributeArray(0);
         d->vignetteProgram->disableAttributeArray(1);
         d->vignetteProgram->release();
+        f->glBindTexture(GL_TEXTURE_2D, 0);
+        f->glEnable(GL_BLEND);
+        src = fboA;
+    }
+
+    // 3.65) 杂色 src → fboA
+    if (document.noiseAmount() > 0.0 && d->noiseProgram) {
+        const int locScene = d->noiseProgram->uniformLocation("uScene");
+        const int locAmt   = d->noiseProgram->uniformLocation("uAmount");
+        const int locGauss = d->noiseProgram->uniformLocation("uGaussian");
+        const int locMono   = d->noiseProgram->uniformLocation("uMono");
+        const int locSeed   = d->noiseProgram->uniformLocation("uSeed");
+        d->noiseProgram->bind();
+        d->noiseProgram->enableAttributeArray(0);
+        d->noiseProgram->enableAttributeArray(1);
+        d->noiseProgram->setAttributeArray(0, GL_FLOAT, verts, 4, 4 * sizeof(float));
+        d->noiseProgram->setAttributeArray(1, GL_FLOAT, verts + 2, 4, 4 * sizeof(float));
+        f->glDisable(GL_BLEND);
+        f->glBindFramebuffer(GL_FRAMEBUFFER, fboA->handle());
+        f->glClearColor(0, 0, 0, 0); f->glClear(GL_COLOR_BUFFER_BIT);
+        f->glActiveTexture(GL_TEXTURE0);
+        f->glBindTexture(GL_TEXTURE_2D, src->texture());
+        d->noiseProgram->setUniformValue(locScene, 0);
+        d->noiseProgram->setUniformValue(locAmt, float(document.noiseAmount()));
+        d->noiseProgram->setUniformValue(locGauss, document.noiseGaussian() ? 1 : 0);
+        d->noiseProgram->setUniformValue(locMono, document.noiseMonochromatic() ? 1 : 0);
+        d->noiseProgram->setUniformValue(locSeed, document.noiseSeed());
+        f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        d->noiseProgram->disableAttributeArray(0);
+        d->noiseProgram->disableAttributeArray(1);
+        d->noiseProgram->release();
         f->glBindTexture(GL_TEXTURE_2D, 0);
         f->glEnable(GL_BLEND);
         src = fboA;

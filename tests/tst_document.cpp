@@ -77,6 +77,9 @@ private slots:
     void vignetteAndMotionBlurOnDocument();
     void vignetteAndMotionBlurCommandUndoRedo();
     void gpuVignetteAndMotionConsistency();
+    void addNoiseOnDocument();
+    void addNoiseCommandUndoRedo();
+    void gpuAddNoiseConsistency();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1229,6 +1232,63 @@ void TestDocument::gpuVignetteAndMotionConsistency()
     doc.addLayer(layer);
     doc.setVignette(50.0, 30.0, 100.0, 60.0);
     doc.setMotionBlur(10.0, 45.0);
+
+    GpuRenderer g;
+    PainterRenderer p;
+    const QImage gImg = g.render(doc);
+    const QImage pImg = p.render(doc);
+    QCOMPARE(gImg.size(), pImg.size());
+    bool differ = false;
+    for (int y = 0; y < 8 && !differ; ++y)
+        for (int x = 0; x < 8 && !differ; ++x)
+            if (gImg.pixel(x, y) != pImg.pixel(x, y))
+                differ = true;
+    QVERIFY(!differ);
+}
+
+void TestDocument::addNoiseOnDocument()
+{
+    Document doc(QSize(4, 4));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(4, 4), QColor(120, 120, 120));
+    doc.addLayer(layer);
+    QCOMPARE(doc.noiseAmount(), 0.0);
+    QVERIFY(doc.noiseGaussian());
+    QVERIFY(!doc.noiseMonochromatic());
+
+    doc.setAddNoise(30.0, false, true, 7u);
+    QCOMPARE(doc.noiseAmount(), 30.0);
+    QVERIFY(!doc.noiseGaussian());
+    QVERIFY(doc.noiseMonochromatic());
+    QCOMPARE(doc.noiseSeed(), 7u);
+    QCOMPARE(layer->pixels().pixelColor(0, 0), QColor(120, 120, 120)); // 非破坏性
+
+    doc.clearAddNoise();
+    QCOMPARE(doc.noiseAmount(), 0.0);
+}
+
+void TestDocument::addNoiseCommandUndoRedo()
+{
+    Document doc(QSize(4, 4));
+    QUndoStack stack;
+    stack.push(new AddNoiseCommand(&doc, 0, true, false, 1u, 25.0, false, true, 42u));
+    QCOMPARE(doc.noiseAmount(), 25.0);
+    QVERIFY(!doc.noiseGaussian());
+    QVERIFY(doc.noiseMonochromatic());
+    QCOMPARE(doc.noiseSeed(), 42u);
+    stack.undo();
+    QCOMPARE(doc.noiseAmount(), 0.0);
+    QVERIFY(doc.noiseGaussian());
+    QVERIFY(!doc.noiseMonochromatic());
+    stack.redo();
+    QCOMPARE(doc.noiseAmount(), 25.0);
+}
+
+void TestDocument::gpuAddNoiseConsistency()
+{
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(100, 100, 100));
+    doc.addLayer(layer);
+    doc.setAddNoise(40.0, true, false, 12345u);
 
     GpuRenderer g;
     PainterRenderer p;

@@ -119,6 +119,28 @@ void Document::clearMotionBlur()
     emit contentChanged();
 }
 
+void Document::setAddNoise(double amount, bool gaussian, bool monochromatic, quint32 seed)
+{
+    if (qFuzzyCompare(m_noise.amount, amount)
+        && m_noise.gaussian == gaussian
+        && m_noise.monochromatic == monochromatic
+        && m_noise.seed == seed)
+        return;
+    m_noise.amount = amount;
+    m_noise.gaussian = gaussian;
+    m_noise.monochromatic = monochromatic;
+    m_noise.seed = seed;
+    emit contentChanged();
+}
+
+void Document::clearAddNoise()
+{
+    if (qFuzzyIsNull(m_noise.amount))
+        return;
+    m_noise.amount = 0.0;
+    emit contentChanged();
+}
+
 void Document::setSize(const QSize &size)
 {
     if (m_size == size)

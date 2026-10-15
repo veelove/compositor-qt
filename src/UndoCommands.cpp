@@ -196,6 +196,32 @@ void MotionBlurCommand::redo()
 }
 
 // ---------------------------------------------------------------------------
+// AddNoiseCommand
+// ---------------------------------------------------------------------------
+AddNoiseCommand::AddNoiseCommand(Document *document,
+                                 double bAmount, bool bGaussian, bool bMono, quint32 bSeed,
+                                 double aAmount, bool aGaussian, bool aMono, quint32 aSeed,
+                                 QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Add Noise"), parent)
+    , m_document(document)
+    , m_bAmount(bAmount), m_aAmount(aAmount)
+    , m_bGauss(bGaussian), m_aGauss(aGaussian)
+    , m_bMono(bMono), m_aMono(aMono)
+    , m_bSeed(bSeed), m_aSeed(aSeed)
+{
+}
+
+void AddNoiseCommand::undo()
+{
+    m_document->setAddNoise(m_bAmount, m_bGauss, m_bMono, m_bSeed);
+}
+
+void AddNoiseCommand::redo()
+{
+    m_document->setAddNoise(m_aAmount, m_aGauss, m_aMono, m_aSeed);
+}
+
+// ---------------------------------------------------------------------------
 // AddLayerCommand
 // ---------------------------------------------------------------------------
 AddLayerCommand::AddLayerCommand(Document *document, Layer *layer, int index, QUndoCommand *parent)
