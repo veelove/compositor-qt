@@ -669,7 +669,6 @@ void MainWindow::createActions()
     connect(m_adjVignetteLiveAction, &QAction::triggered, this, &MainWindow::adjVignetteLive);
     m_adjMotionBlurLiveAction = new QAction(tr("Motion Blur (GPU)..."), this);
     connect(m_adjMotionBlurLiveAction, &QAction::triggered, this, &MainWindow::adjMotionBlurLive);
-}
 
     m_adjNoiseLiveAction = new QAction(tr("Add Noise (GPU)..."), this);
     connect(m_adjNoiseLiveAction, &QAction::triggered, this, &MainWindow::adjAddNoiseLive);
