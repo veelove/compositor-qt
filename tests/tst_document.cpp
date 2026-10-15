@@ -2,6 +2,7 @@
 
 #include "AdjustLut.h"
 #include "Adjustments.h"
+#include "CanvasView.h"
 #include "Document.h"
 #include "Filters.h"
 #include "Geometry.h"
@@ -88,6 +89,9 @@ private slots:
     void rawProviderExtensions();
     void rawProviderFactoryAndStub();
     void visionProviderFactoryAndStub();
+    void magicWandMaskBoundingRect();
+    void selectionCommandUndoRedo();
+    void magicWandCompositeCommand();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1441,6 +1445,135 @@ void TestDocument::visionProviderFactoryAndStub()
     QVERIFY(!ok);
     QVERIFY(!err.isEmpty());
     QVERIFY(mask.isNull());
+}
+
+// ============================== Magic Wand 落地 ==============================
+void TestDocument::magicWandMaskBoundingRect()
+{
+    // CanvasView::setSelectionMask 应该:
+    // 1) 存下 mask 用于 overlay 绘制
+    // 2) 自动算出 boundingRect 作为 selectionRect
+    CanvasView view;
+    Document doc(QSize(10, 10));
+    view.setDocument(&doc);
+
+    // 构造 10x10 mask:中心 4x4 区域点亮(1)
+    QImage mask(10, 10, QImage::Format_Grayscale8);
+    mask.fill(0);
+    for (int y = 3; y <= 6; ++y)
+        for (int x = 2; x <= 5; ++x)
+            mask.setPixel(x, y, 255);
+
+    view.setSelectionMask(mask);
+    QCOMPARE(view.selectionMask().size(), QSize(10, 10));
+    QCOMPARE(view.selectionRect(), QRect(2, 3, 4, 4));
+
+    // 全 0 mask → selectionRect 应清空(空选区)
+    QImage emptyMask(10, 10, QImage::Format_Grayscale8);
+    emptyMask.fill(0);
+    view.setSelectionMask(emptyMask);
+    QVERIFY(view.selectionRect().isEmpty());
+
+    // 单像素 mask
+    QImage onePixel(10, 10, QImage::Format_Grayscale8);
+    onePixel.fill(0);
+    onePixel.setPixel(7, 4, 200);
+    view.setSelectionMask(onePixel);
+    QCOMPARE(view.selectionRect(), QRect(7, 4, 1, 1));
+}
+
+void TestDocument::selectionCommandUndoRedo()
+{
+    // SelectionCommand:rect-only + mask-aware 两条路径
+    Document doc(QSize(8, 8));
+    CanvasView view;
+    view.setDocument(&doc);
+    QVERIFY(view.selectionRect().isEmpty());
+
+    // 路径 1:rect-only
+    QUndoStack stack;
+    QRect r1(2, 3, 5, 4);
+    QRect r2(6, 0, 2, 2);
+    stack.push(new SelectionCommand(&view, r1, r2));
+    QCOMPARE(view.selectionRect(), r2); // redo 应用
+    stack.undo();
+    QCOMPARE(view.selectionRect(), r1); // 还原
+    stack.redo();
+    QCOMPARE(view.selectionRect(), r2);
+
+    // 路径 2:mask-aware,setSelectionMask 会同步算出 boundingRect
+    QImage maskA(8, 8, QImage::Format_Grayscale8); maskA.fill(0);
+    QImage maskB(8, 8, QImage::Format_Grayscale8); maskB.fill(0);
+    for (int y = 0; y < 4; ++y) for (int x = 0; x < 4; ++x) maskA.setPixel(x, y, 200);
+    for (int y = 4; y < 8; ++y) for (int x = 4; x < 8; ++x) maskB.setPixel(x, y, 200);
+    stack.push(new SelectionCommand(&view, QRect(0, 0, 4, 4), QRect(4, 4, 4, 4),
+                                    maskA, maskB));
+    QCOMPARE(view.selectionRect(), QRect(4, 4, 4, 4));     // 触发 setSelectionMask → bbox
+    QVERIFY(!view.selectionMask().isNull());
+    stack.undo();
+    QCOMPARE(view.selectionRect(), QRect(0, 0, 4, 4));     // 还原旧 mask 的 bbox
+    stack.redo();
+    QCOMPARE(view.selectionRect(), QRect(4, 4, 4, 4));
+}
+
+void TestDocument::magicWandCompositeCommand()
+{
+    // Magic Wand 一次操作:加 mask 图层 + 设置 selectionRect,撤销/重做都应整体还原。
+    Document doc(QSize(8, 8));
+    auto *bg = new Layer(QStringLiteral("bg"), doc.size(), QColor(40, 80, 160));
+    doc.addLayer(bg);
+    QCOMPARE(doc.layerCount(), 1);
+
+    CanvasView view;
+    view.setDocument(&doc);
+    QVERIFY(view.selectionRect().isEmpty());
+
+    // 模拟 VisionProvider 输出:中心 4x4 区域为前景
+    QImage mask(8, 8, QImage::Format_Grayscale8);
+    mask.fill(0);
+    for (int y = 2; y <= 5; ++y)
+        for (int x = 2; x <= 5; ++x)
+            mask.setPixel(x, y, 200);
+
+    // 在 MainWindow::onMagicWand 里做的 mask → RGBA 图层 + 复合 push
+    QImage layerPx(doc.size(), QImage::Format_ARGB32_Premultiplied);
+    layerPx.fill(Qt::transparent);
+    for (int y = 0; y < doc.size().height(); ++y) {
+        const uchar *src = mask.constScanLine(y);
+        QRgb *dst = reinterpret_cast<QRgb *>(layerPx.scanLine(y));
+        for (int x = 0; x < doc.size().width(); ++x) {
+            const int a = src[x];
+            if (a == 0) continue;
+            dst[x] = qRgba(255 * a / 255, 160 * a / 255, 60 * a / 255, a);
+        }
+    }
+    auto *maskLayer = new Layer(QStringLiteral("Magic Wand Mask"), doc.size(), Qt::transparent);
+    maskLayer->pixels() = layerPx;
+    maskLayer->setOpacity(0.55);
+
+    QUndoStack stack;
+    auto *mwCmd = new MagicWandCommand();
+    new AddLayerCommand(&doc, maskLayer, -1, mwCmd);
+    new SelectionCommand(&view, view.selectionRect(), QRect(2, 2, 4, 4),
+                         view.selectionMask(), mask, mwCmd);
+    stack.push(mwCmd);
+
+    // 复合命令被 push 后:图层加进文档,选区变到 mask 的 bbox
+    QCOMPARE(doc.layerCount(), 2);
+    QCOMPARE(view.selectionRect(), QRect(2, 2, 4, 4));
+    QCOMPARE(view.selectionMask().size(), QSize(8, 8));
+    QCOMPARE(doc.layers().at(1)->name(), QStringLiteral("Magic Wand Mask"));
+
+    // 撤销:图层 + 选区 一起回到原状
+    stack.undo();
+    QCOMPARE(doc.layerCount(), 1);
+    QVERIFY(view.selectionRect().isEmpty());
+
+    // 重做:再次完整出现
+    stack.redo();
+    QCOMPARE(doc.layerCount(), 2);
+    QCOMPARE(view.selectionRect(), QRect(2, 2, 4, 4));
+    QCOMPARE(doc.layers().at(1)->name(), QStringLiteral("Magic Wand Mask"));
 }
 
 QTEST_MAIN(TestDocument)

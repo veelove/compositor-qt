@@ -348,3 +348,46 @@ void PaintCommand::redo()
 {
     blitRegion(m_layer, m_rect, m_after);
 }
+
+// ---------------------------------------------------------------------------
+// SelectionCommand
+// ---------------------------------------------------------------------------
+SelectionCommand::SelectionCommand(CanvasView *canvas, const QRect &before, const QRect &after,
+                                   const QImage &beforeMask, const QImage &afterMask,
+                                   QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Change Selection"), parent)
+    , m_canvas(canvas)
+    , m_before(before)
+    , m_after(after)
+    , m_beforeMask(beforeMask)
+    , m_afterMask(afterMask)
+{
+}
+
+void SelectionCommand::undo()
+{
+    if (!m_canvas)
+        return;
+    if (!m_beforeMask.isNull())
+        m_canvas->setSelectionMask(m_beforeMask);
+    else
+        m_canvas->setSelectionRect(m_before);
+}
+
+void SelectionCommand::redo()
+{
+    if (!m_canvas)
+        return;
+    if (!m_afterMask.isNull())
+        m_canvas->setSelectionMask(m_afterMask);
+    else
+        m_canvas->setSelectionRect(m_after);
+}
+
+// ---------------------------------------------------------------------------
+// MagicWandCommand
+// ---------------------------------------------------------------------------
+MagicWandCommand::MagicWandCommand(QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Magic Wand"), parent)
+{
+}

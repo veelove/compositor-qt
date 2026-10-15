@@ -424,6 +424,7 @@ void CanvasView::clearSelection()
     pixelRect = pixelRect.intersected(layer->pixels().rect());
     if (pixelRect.isEmpty()) {
         m_selection = QRect();
+        m_selectionMask = QImage();
         update();
         return;
     }
@@ -431,7 +432,43 @@ void CanvasView::clearSelection()
     if (m_undoStack)
         m_undoStack->push(new ClearRectCommand(layer, pixelRect, before));
     m_selection = QRect();
+    m_selectionMask = QImage();
     update();
+}
+
+void CanvasView::setSelectionRect(const QRect &rect)
+{
+    if (m_selection == rect)
+        return;
+    m_selection = rect;
+    emit selectionChanged(m_selection);
+    update();
+}
+
+void CanvasView::setSelectionMask(const QImage &mask)
+{
+    m_selectionMask = mask;
+    if (mask.isNull()) {
+        setSelectionRect(QRect());
+        return;
+    }
+    // 计算 bounding rect(像素 > 0)
+    int minX = mask.width(), minY = mask.height(), maxX = -1, maxY = -1;
+    for (int y = 0; y < mask.height(); ++y) {
+        const uchar *row = mask.constScanLine(y);
+        for (int x = 0; x < mask.width(); ++x) {
+            if (row[x] > 0) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    if (maxX < 0)
+        setSelectionRect(QRect());
+    else
+        setSelectionRect(QRect(QPoint(minX, minY), QPoint(maxX, maxY)));
 }
 
 void CanvasView::drawSelectionOverlay(QPainter &p, const QRectF &docRect)
@@ -439,6 +476,32 @@ void CanvasView::drawSelectionOverlay(QPainter &p, const QRectF &docRect)
     Q_UNUSED(docRect);
     if (m_selection.isEmpty())
         return;
+
+    // 1) mask 形状:如果有 mask,在 mask 范围内用半透明橙红覆盖(可视化选区形状)
+    if (!m_selectionMask.isNull()) {
+        const QSize doc = documentSize();
+        if (m_selectionMask.size() == doc) {
+            QImage overlay(m_selectionMask.size(), QImage::Format_ARGB32_Premultiplied);
+            overlay.fill(Qt::transparent);
+            const QColor tint(255, 160, 60, 140);
+            for (int y = 0; y < overlay.height(); ++y) {
+                const uchar *src = m_selectionMask.constScanLine(y);
+                QRgb *dst = reinterpret_cast<QRgb *>(overlay.scanLine(y));
+                for (int x = 0; x < overlay.width(); ++x) {
+                    const int a = src[x];
+                    if (a == 0) continue;
+                    // 选区内:橙红覆盖,alpha = mask/4 (轻度叠加)
+                    const int oa = qMin(255, qMax(0, (tint.alpha() * a) / 255));
+                    dst[x] = qRgba(tint.red(), tint.green(), tint.blue(), oa);
+                }
+            }
+            const QRectF viewRect(canvasToView(QPointF(0, 0)),
+                                  QSizeF(doc) * m_zoom);
+            p.drawImage(viewRect, overlay);
+        }
+    }
+
+    // 2) boundingRect 虚线边框
     const QRectF viewRect(canvasToView(m_selection.topLeft()),
                           QSizeF(m_selection.size()) * m_zoom);
     p.setPen(QPen(Qt::white, 1, Qt::DashLine));

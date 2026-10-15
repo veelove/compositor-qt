@@ -42,6 +42,16 @@ public:
     void setTool(Tool tool);
     void setBrushColor(const QColor &color) { m_brushColor = color; }
 
+    // 选区:可由 RectSelect 或 MagicWand(MaskLayer) 设置。
+    // - selectionRect: 用于键盘 Delete 清除 + 屏幕 dashed 边框(基于 mask 的 boundingRect)。
+    // - selectionMask: 全图 mask (Format_Grayscale8),用于按 mask 应用变换。
+    // - setSelectionMask 同时会算出 boundingRect 写回 selectionRect。
+    void setSelectionMask(const QImage &mask);
+    QImage selectionMask() const { return m_selectionMask; }
+    void setSelectionRect(const QRect &rect);
+    QRect selectionRect() const { return m_selection; }
+    void clearSelection();
+
 public slots:
     void zoomIn();
     void zoomOut();
@@ -54,6 +64,7 @@ signals:
     void toolChanged(Tool tool);
     void colorPicked(const QColor &color); // 吸管取色
     void magicWandTriggered(const QPoint &canvasPos); // 智能选择(单点)
+    void selectionChanged(const QRect &rect); // 选区变化(magicWand 或 RectSelect 都触发)
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -114,4 +125,5 @@ private:
     bool m_selecting = false;
     QPoint m_selectStart;       // 选区起点(画布坐标)
     QRect m_selection;          // 定稿后的选区(画布坐标)
+    QImage m_selectionMask;     // magicWand 全图 mask(可能大于 boundingRect)
 };

@@ -859,6 +859,9 @@ void MainWindow::onMagicWand(const QPoint &canvasPos)
 {
     Document *doc = currentDocument();
     if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
+    CanvasView *canvas = currentCanvas();
+    if (!canvas) return;
+
     QImage composite;
     {
         PainterRenderer r;
@@ -873,12 +876,79 @@ void MainWindow::onMagicWand(const QPoint &canvasPos)
         QMessageBox::warning(this, tr("智能选择失败"), err);
         return;
     }
-    // 选区预览:CanvasView 的 m_selection 用 1 byte alpha 表示;这里把选区归一化到 selectionRect 范围
-    if (auto *c = currentCanvas()) {
-        // MVP:只把 mask 当成全图选区显示;真正的"按 mask 选区"等后续 MaskLayer 接入
-        statusBar()->showMessage(tr("智能选择完成,得到 %1x%2 蒙版").arg(mask.width()).arg(mask.height()), 5000);
-        Q_UNUSED(c);
+    if (mask.isNull()) {
+        statusBar()->showMessage(tr("智能选择未识别到主体"), 5000);
+        return;
     }
+
+    // mask 必须与文档尺寸一致(VisionProvider 已经会按 image.size() 缩放)
+    if (mask.size() != doc->size()) {
+        mask = mask.scaled(doc->size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        mask = mask.convertToFormat(QImage::Format_Grayscale8);
+    }
+
+    // 计算 mask 的 bounding rect
+    QRect maskRect;
+    {
+        int minX = mask.width(), minY = mask.height(), maxX = -1, maxY = -1;
+        for (int y = 0; y < mask.height(); ++y) {
+            const uchar *row = mask.constScanLine(y);
+            for (int x = 0; x < mask.width(); ++x) {
+                if (row[x] > 0) {
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (maxX >= 0)
+            maskRect = QRect(QPoint(minX, minY), QPoint(maxX, maxY));
+    }
+    if (maskRect.isEmpty()) {
+        statusBar()->showMessage(tr("智能选择结果为空"), 5000);
+        return;
+    }
+
+    // 1) 把 mask 转成 RGBA 图层像素:RGB=橙红,Alpha=mask。
+    //    作为"Alpha 蒙版图层"插入到图层栈顶部,默认可见;用户可隐藏。
+    QImage layerPx(doc->size(), QImage::Format_ARGB32_Premultiplied);
+    layerPx.fill(Qt::transparent);
+    const QColor tint(255, 160, 60);
+    for (int y = 0; y < layerPx.height(); ++y) {
+        const uchar *src = mask.constScanLine(y);
+        QRgb *dst = reinterpret_cast<QRgb *>(layerPx.scanLine(y));
+        for (int x = 0; x < layerPx.width(); ++x) {
+            const int a = src[x];
+            if (a == 0) continue;
+            // 预乘模式下 color *= alpha/255
+            const int aa = (tint.alpha() * a) / 255;
+            const int cr = (tint.red()   * aa) / 255;
+            const int cg = (tint.green() * aa) / 255;
+            const int cb = (tint.blue()  * aa) / 255;
+            dst[x] = qRgba(cr, cg, cb, aa);
+        }
+    }
+    auto *maskLayer = new Layer(tr("Magic Wand Mask"), doc->size(), Qt::transparent);
+    maskLayer->pixels() = layerPx;
+    maskLayer->setOpacity(0.55); // 提示色,不太刺眼
+
+    // 2) 复合撤销:在一次 push 里完成"加图层 + 改选区",用户一次 Undo 即可还原
+    const QRect oldSel = canvas->selectionRect();
+    const QImage oldMask = canvas->selectionMask();
+    auto *mwCmd = new MagicWandCommand();
+    new AddLayerCommand(doc, maskLayer, -1, mwCmd);
+    new SelectionCommand(canvas, oldSel, maskRect, oldMask, mask, mwCmd);
+    doc->undoStack()->push(mwCmd);
+
+    // 3) 状态栏
+    statusBar()->showMessage(
+        tr("智能选择完成:蒙版 %1x%2,选区 (%3,%4)-(%5,%6),命中 %7 像素")
+            .arg(mask.width()).arg(mask.height())
+            .arg(maskRect.left()).arg(maskRect.top())
+            .arg(maskRect.right()).arg(maskRect.bottom())
+            .arg(int(maskRect.width() * maskRect.height())),
+        5000);
 }
 
 void MainWindow::onUndoStackChanged()

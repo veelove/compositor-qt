@@ -7,6 +7,7 @@
 #include <QRect>
 #include <QUndoCommand>
 
+class CanvasView;
 class Document;
 class Layer;
 
@@ -221,4 +222,33 @@ private:
     QRect m_rect;
     QImage m_before;
     QImage m_after;
+};
+
+// 选区变更:对 CanvasView 暴露的 selectionRect 做 before/after 同步。
+// 用在 Magic Wand / RectSelect 等需要把临时选区状态纳入撤销栈的场景。
+// 可选保存 before/after 的 mask(Format_Grayscale8),用于撤销/重做时精确还原。
+class SelectionCommand : public QUndoCommand
+{
+public:
+    SelectionCommand(CanvasView *canvas, const QRect &before, const QRect &after,
+                     const QImage &beforeMask = {}, const QImage &afterMask = {},
+                     QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    CanvasView *m_canvas;
+    QRect m_before;
+    QRect m_after;
+    QImage m_beforeMask;
+    QImage m_afterMask;
+};
+
+// Magic Wand 复合命令:把"新建 mask 图层"与"设置选区矩形"绑定为一次撤销单元。
+// 仅作为 QUndoCommand 的子命令组合容器;实际工作由 AddLayerCommand + SelectionCommand 完成。
+// 保留为命名锚点,方便外部 grep / 单元测试 assert。
+class MagicWandCommand : public QUndoCommand
+{
+public:
+    explicit MagicWandCommand(QUndoCommand *parent = nullptr);
 };
