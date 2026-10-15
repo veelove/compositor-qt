@@ -28,13 +28,15 @@ jobs:
       - name: Build
         shell: bash
         run: cmake --build build 2>&1 | tee build.log; echo "BUILD_EXIT=${PIPESTATUS[0]}" >> build.log
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
-          if-no-files-found: ignore
+      - name: Append build log to summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Build log (last 200 lines)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -200 build.log 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "(no build.log captured)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Test
         if: ${{ false }}  # Windows headless CI 上 Qt offscreen 平台仍需调,先跳过
