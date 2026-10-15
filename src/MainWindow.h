@@ -120,6 +120,8 @@ private:
     QAction *m_adjExposureAction = nullptr;
     QAction *m_adjCurvesAction = nullptr;
     QAction *m_adjHsvAction = nullptr;
+    QAction *m_adjBwAction = nullptr;
+    QAction *m_adjCbAction = nullptr;
     QAction *m_adjInvertAction = nullptr;
     QAction *m_adjResetAction = nullptr;
     QAction *m_adjGaussianLiveAction = nullptr;
