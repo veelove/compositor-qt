@@ -1222,5 +1222,26 @@ void TestDocument::vignetteAndMotionBlurCommandUndoRedo()
     QCOMPARE(doc.motionBlurDistance(), 12.0);
 }
 
+void TestDocument::gpuVignetteAndMotionConsistency()
+{
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(200, 200, 200));
+    doc.addLayer(layer);
+    doc.setVignette(50.0, 30.0, 100.0, 60.0);
+    doc.setMotionBlur(10.0, 45.0);
+
+    GpuRenderer g;
+    PainterRenderer p;
+    const QImage gImg = g.render(doc);
+    const QImage pImg = p.render(doc);
+    QCOMPARE(gImg.size(), pImg.size());
+    bool differ = false;
+    for (int y = 0; y < 8 && !differ; ++y)
+        for (int x = 0; x < 8 && !differ; ++x)
+            if (gImg.pixel(x, y) != pImg.pixel(x, y))
+                differ = true;
+    QVERIFY(!differ);
+}
+
 QTEST_MAIN(TestDocument)
 #include "tst_document.moc"
