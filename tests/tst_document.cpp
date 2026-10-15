@@ -7,6 +7,7 @@
 #include "Geometry.h"
 #include "GpuRenderer.h"
 #include "Layer.h"
+#include "RawProvider.h"
 #include "PainterRenderer.h"
 #include "PsdReader.h"
 #include "PsdWriter.h"
@@ -83,6 +84,8 @@ private slots:
     void hsvBwCbOnDocument();
     void hsvBwCbCommandUndoRedo();
     void gpuHsvBwCbConsistency();
+    void rawProviderExtensions();
+    void rawProviderFactoryAndStub();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1385,6 +1388,40 @@ void TestDocument::gpuHsvBwCbConsistency()
             if (gImg.pixel(x, y) != pImg.pixel(x, y))
                 differ = true;
     QVERIFY(!differ);
+}
+
+void TestDocument::rawProviderExtensions()
+{
+    // 覆盖主流 RAW 扩展名(大小写不敏感)
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("/tmp/a.DNG")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("foo.cr2")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("x.NEF")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("y.arw")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("z.rw2")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("a.raf")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("b.orf")));
+    QVERIFY(RawDecoder::isRawFile(QStringLiteral("c.pef")));
+    // 非 RAW 扩展名
+    QVERIFY(!RawDecoder::isRawFile(QStringLiteral("a.png")));
+    QVERIFY(!RawDecoder::isRawFile(QStringLiteral("a.psd")));
+    QVERIFY(!RawDecoder::isRawFile(QStringLiteral("a.jpg")));
+    QVERIFY(!RawDecoder::isRawFile(QStringLiteral("a")));
+    QVERIFY(!RawDecoder::isRawFile(QString()));
+}
+
+void TestDocument::rawProviderFactoryAndStub()
+{
+    // 工厂:返回非空
+    std::unique_ptr<RawDecoder> dec(RawDecoder::create());
+    QVERIFY(dec != nullptr);
+
+    // Stub:对不存在的路径,decode 返回 false + error
+    QImage img;
+    QString err;
+    const bool ok = dec->decode(QStringLiteral("/nonexistent/path.DNG"), img, &err);
+    QVERIFY(!ok);
+    QVERIFY(!err.isEmpty());
+    QVERIFY(img.isNull());
 }
 
 QTEST_MAIN(TestDocument)

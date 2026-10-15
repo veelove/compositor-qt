@@ -12,7 +12,10 @@
 #include "PainterRenderer.h"
 #include "PsdReader.h"
 #include "PsdWriter.h"
+#include "RawProvider.h"
 #include "UndoCommands.h"
+
+#include <memory>
 
 #include <QAction>
 #include <QActionGroup>
@@ -243,23 +246,33 @@ void MainWindow::fileNew()
 
 void MainWindow::fileOpen()
 {
-    const QString path = QFileDialog::getOpenFileName(
-        this, tr("Open Image"), QString(),
-        tr("Images (*.psd *.png *.jpg *.jpeg *.bmp);;PSD (*.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg)"));
+    // 文件过滤器包含主流格式 + 相机 RAW
+    const QString filter = tr(
+        "All Images (*.psd *.png *.jpg *.jpeg *.bmp "
+        "*.dng *.cr2 *.cr3 *.nef *.arw *.rw2 *.raf *.orf);;"
+        "PSD (*.psd);;PNG (*.png);;JPEG (*.jpg *.jpeg);;"
+        "Camera RAW (*.dng *.cr2 *.cr3 *.nef *.arw *.rw2 *.raf *.orf)");
+    const QString path = QFileDialog::getOpenFileName(this, tr("Open Image"), QString(), filter);
     if (path.isEmpty())
         return;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, tr("Open Failed"), tr("无法打开文件: %1").arg(file.errorString()));
-        return;
-    }
-    const QByteArray data = file.readAll();
 
     QImage image;
     bool ok = false;
     QString error;
-    if (path.endsWith(".psd", Qt::CaseInsensitive)) {
+
+    if (RawDecoder::isRawFile(path)) {
+        // 相机 RAW → 通过 RawDecoder 抽象(内部用 dcraw_emu/LibRaw)
+        std::unique_ptr<RawDecoder> dec(RawDecoder::create());
+        if (dec->decode(path, image, &error)) {
+            ok = true;
+        }
+    } else if (path.endsWith(".psd", Qt::CaseInsensitive)) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(this, tr("Open Failed"), tr("无法打开文件: %1").arg(file.errorString()));
+            return;
+        }
+        const QByteArray data = file.readAll();
         const auto r = psd::Reader::read(data);
         if (r.ok) {
             image = r.composite;
@@ -268,6 +281,12 @@ void MainWindow::fileOpen()
             error = r.error;
         }
     } else {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(this, tr("Open Failed"), tr("无法打开文件: %1").arg(file.errorString()));
+            return;
+        }
+        const QByteArray data = file.readAll();
         if (image.loadFromData(data))
             ok = true;
         else
