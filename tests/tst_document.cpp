@@ -1176,5 +1176,51 @@ void TestDocument::gpuGaussianBlurConsistency()
     QVERIFY(!differ);
 }
 
+void TestDocument::vignetteAndMotionBlurOnDocument()
+{
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(180, 180, 180));
+    doc.addLayer(layer);
+
+    QCOMPARE(doc.vignetteAmount(), 0.0);
+    QCOMPARE(doc.motionBlurDistance(), 0.0);
+
+    doc.setVignette(50.0, 30.0, 100.0, 60.0);
+    QCOMPARE(doc.vignetteAmount(), 50.0);
+    QCOMPARE(doc.vignetteMidpoint(), 30.0);
+    doc.setMotionBlur(15.0, 90.0);
+    QCOMPARE(doc.motionBlurDistance(), 15.0);
+    QCOMPARE(doc.motionBlurAngle(), 90.0);
+
+    // 图层像素保持不变(非破坏性)
+    QCOMPARE(layer->pixels().pixelColor(0, 0), QColor(180, 180, 180));
+
+    doc.clearVignette();
+    QCOMPARE(doc.vignetteAmount(), 0.0);
+    doc.clearMotionBlur();
+    QCOMPARE(doc.motionBlurDistance(), 0.0);
+}
+
+void TestDocument::vignetteAndMotionBlurCommandUndoRedo()
+{
+    Document doc(QSize(4, 4));
+    QUndoStack stack;
+
+    stack.push(new VignetteCommand(&doc, 0, 50, 100, 60, 60, 40, 100, 50));
+    QCOMPARE(doc.vignetteAmount(), 60.0);
+    stack.undo();
+    QCOMPARE(doc.vignetteAmount(), 0.0);
+    stack.redo();
+    QCOMPARE(doc.vignetteAmount(), 60.0);
+
+    stack.push(new MotionBlurCommand(&doc, 0, 0, 12, 45));
+    QCOMPARE(doc.motionBlurDistance(), 12.0);
+    QCOMPARE(doc.motionBlurAngle(), 45.0);
+    stack.undo();
+    QCOMPARE(doc.motionBlurDistance(), 0.0);
+    stack.redo();
+    QCOMPARE(doc.motionBlurDistance(), 12.0);
+}
+
 QTEST_MAIN(TestDocument)
 #include "tst_document.moc"
