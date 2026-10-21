@@ -27,12 +27,12 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cmake --build build 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
-      - name: Publish build errors
-        if: failure()
-        shell: pwsh
         run: |
-          Get-Content build.log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          set -o pipefail
+          cmake --build build 2>&1 | tee build.log
+          echo "###BUILD_ERRORS_BEGIN###"
+          grep -nE "error [A-Z]+[0-9]+|error:|fatal error" build.log | head -40 || echo "(no error lines matched)"
+          echo "###BUILD_ERRORS_END###"
 
       - name: Test
         if: ${{ false }}  # Windows headless CI 上 Qt offscreen 平台仍需调,先跳过
