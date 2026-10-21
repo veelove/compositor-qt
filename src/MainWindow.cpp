@@ -45,6 +45,28 @@
 
 namespace {
 
+// 扫描 mask 中非零像素的外接矩形;全 0 mask 返回空 QRect。
+QRect maskBoundingRect(const QImage &mask)
+{
+    if (mask.isNull())
+        return {};
+    int minX = mask.width(), minY = mask.height(), maxX = -1, maxY = -1;
+    for (int y = 0; y < mask.height(); ++y) {
+        const uchar *row = mask.constScanLine(y);
+        for (int x = 0; x < mask.width(); ++x) {
+            if (row[x] > 0) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    if (maxX < 0)
+        return {};
+    return QRect(QPoint(minX, minY), QPoint(maxX, maxY));
+}
+
 // 把 CanvasView 的画布坐标系 mask 转到指定图层的像素坐标系(按 targetSize 缩放)。
 // 返回 null 表示当前没有可用 mask,调用方应退回"整层处理"。
 QImage maskForLayerPixels(const CanvasView &canvas, const Layer &layer, const QSize &targetSize)
@@ -201,6 +223,7 @@ void MainWindow::onTabChanged(int index)
                 [this](const QString &t) { m_cursorLabel->setText(t); });
         connect(canvas, &CanvasView::colorPicked, this, &MainWindow::onColorPicked);
         connect(canvas, &CanvasView::magicWandTriggered, this, &MainWindow::onMagicWand);
+        connect(canvas, &CanvasView::rectSelectFinished, this, &MainWindow::onRectSelectFinished);
         m_zoomLabel->setText(tr("%1%").arg(qRound(canvas->zoom() * 100)));
         m_cursorLabel->clear();
     } else {
@@ -774,6 +797,23 @@ void MainWindow::createActions()
     m_cropToSelectionAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Shift | Qt::Key_C));
     connect(m_cropToSelectionAction, &QAction::triggered, this, &MainWindow::cropToSelection);
 
+    m_selectAllAction = new QAction(tr("&All"), this);
+    m_selectAllAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_A));
+    connect(m_selectAllAction, &QAction::triggered, this, &MainWindow::selectAll);
+    m_selectNoneAction = new QAction(tr("&None"), this);
+    m_selectNoneAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    connect(m_selectNoneAction, &QAction::triggered, this, &MainWindow::selectNone);
+    m_selectFeatherAction = new QAction(tr("&Feather..."), this);
+    connect(m_selectFeatherAction, &QAction::triggered, this, &MainWindow::selectFeather);
+    m_selectExpandAction = new QAction(tr("E&xpand..."), this);
+    connect(m_selectExpandAction, &QAction::triggered, this, &MainWindow::selectExpand);
+    m_selectShrinkAction = new QAction(tr("S&hrink..."), this);
+    connect(m_selectShrinkAction, &QAction::triggered, this, &MainWindow::selectShrink);
+
+    m_layerViaMaskAction = new QAction(tr("Layer via &Mask"), this);
+    m_layerViaMaskAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_J));
+    connect(m_layerViaMaskAction, &QAction::triggered, this, &MainWindow::layerViaMask);
+
     m_adjGaussianLiveAction = new QAction(tr("Gaussian Blur (GPU)..."), this);
     connect(m_adjGaussianLiveAction, &QAction::triggered, this, &MainWindow::adjGaussianBlurLive);
 
@@ -800,6 +840,18 @@ void MainWindow::createMenus()
     QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
     editMenu->addAction(m_undoAction);
     editMenu->addAction(m_redoAction);
+    editMenu->addSeparator();
+    editMenu->addAction(m_layerViaMaskAction);
+
+    QMenu *selectMenu = menuBar()->addMenu(tr("Se&lect"));
+    selectMenu->addAction(m_selectAllAction);
+    selectMenu->addAction(m_selectNoneAction);
+    selectMenu->addSeparator();
+    selectMenu->addAction(m_selectFeatherAction);
+    selectMenu->addAction(m_selectExpandAction);
+    selectMenu->addAction(m_selectShrinkAction);
+    selectMenu->addSeparator();
+    selectMenu->addAction(m_cropToSelectionAction);
 
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
     viewMenu->addAction(m_zoomInAction);
@@ -825,8 +877,6 @@ void MainWindow::createMenus()
     imageMenu->addAction(m_adjCbAction);
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjInvertAction);
-    imageMenu->addSeparator();
-    imageMenu->addAction(m_cropToSelectionAction);
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjGaussianLiveAction);
     imageMenu->addAction(m_adjVignetteLiveAction);
@@ -898,7 +948,22 @@ void MainWindow::onColorPicked(const QColor &color)
     statusBar()->showMessage(tr("画笔颜色: %1").arg(color.name()), 3000);
 }
 
-void MainWindow::onMagicWand(const QPoint &canvasPos)
+sel::CombineOp MainWindow::combineOpFor(Qt::KeyboardModifiers mods, bool hasExistingSelection)
+{
+    const bool shift = mods.testFlag(Qt::ShiftModifier);
+    const bool alt = mods.testFlag(Qt::AltModifier);
+    if (shift && alt)
+        return sel::CombineOp::Intersect;
+    if (alt)
+        return sel::CombineOp::Subtract;
+    if (shift)
+        return sel::CombineOp::Union;
+    // 无修饰键:有已有选区时用"替换"(并集到空),否则新建
+    Q_UNUSED(hasExistingSelection);
+    return sel::CombineOp::Union;
+}
+
+void MainWindow::onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifiers modifiers)
 {
     Document *doc = currentDocument();
     if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
@@ -930,26 +995,25 @@ void MainWindow::onMagicWand(const QPoint &canvasPos)
         mask = mask.convertToFormat(QImage::Format_Grayscale8);
     }
 
-    // 计算 mask 的 bounding rect
-    QRect maskRect;
-    {
-        int minX = mask.width(), minY = mask.height(), maxX = -1, maxY = -1;
-        for (int y = 0; y < mask.height(); ++y) {
-            const uchar *row = mask.constScanLine(y);
-            for (int x = 0; x < mask.width(); ++x) {
-                if (row[x] > 0) {
-                    if (x < minX) minX = x;
-                    if (y < minY) minY = y;
-                    if (x > maxX) maxX = x;
-                    if (y > maxY) maxY = y;
-                }
-            }
-        }
-        if (maxX >= 0)
-            maskRect = QRect(QPoint(minX, minY), QPoint(maxX, maxY));
-    }
+    const QRect maskRect = maskBoundingRect(mask);
     if (maskRect.isEmpty()) {
         statusBar()->showMessage(tr("智能选择结果为空"), 5000);
+        return;
+    }
+
+    // 布尔运算:Shift 加选 / Alt 减选 / Shift+Alt 交集
+    const QRect oldSel = canvas->selectionRect();
+    const QImage oldMask = canvas->selectionMask();
+    const bool hadSelection = !oldSel.isEmpty();
+    const sel::CombineOp op = combineOpFor(modifiers, hadSelection);
+    const QImage newMask = (hadSelection && op != sel::CombineOp::Union)
+                               ? sel::combine(oldMask, mask, op, doc->size())
+                               : (hadSelection && op == sel::CombineOp::Union)
+                                   ? sel::combine(oldMask, mask, sel::CombineOp::Union, doc->size())
+                                   : mask;
+    const QRect newSel = maskBoundingRect(newMask);
+    if (newSel.isEmpty()) {
+        statusBar()->showMessage(tr("布尔运算后选区为空"), 4000);
         return;
     }
 
@@ -977,21 +1041,181 @@ void MainWindow::onMagicWand(const QPoint &canvasPos)
     maskLayer->setOpacity(0.55); // 提示色,不太刺眼
 
     // 2) 复合撤销:在一次 push 里完成"加图层 + 改选区",用户一次 Undo 即可还原
-    const QRect oldSel = canvas->selectionRect();
-    const QImage oldMask = canvas->selectionMask();
     auto *mwCmd = new MagicWandCommand();
     new AddLayerCommand(doc, maskLayer, -1, mwCmd);
-    new SelectionCommand(canvas, oldSel, maskRect, oldMask, mask, mwCmd);
+    new SelectionCommand(canvas, oldSel, newSel, oldMask, newMask, mwCmd);
     doc->undoStack()->push(mwCmd);
 
-    // 3) 状态栏
+    // 3) 状态栏(含布尔运算模式提示)
+    const char *opName = (op == sel::CombineOp::Union)  ? "加选"
+                       : (op == sel::CombineOp::Subtract) ? "减选"
+                                                          : "交集";
     statusBar()->showMessage(
-        tr("智能选择完成:蒙版 %1x%2,选区 (%3,%4)-(%5,%6),命中 %7 像素")
+        tr("智能选择完成(%1):蒙版 %2x%3,选区 (%4,%5)-(%6,%7),命中 %8 像素")
+            .arg(QString::fromLatin1(opName))
             .arg(mask.width()).arg(mask.height())
-            .arg(maskRect.left()).arg(maskRect.top())
-            .arg(maskRect.right()).arg(maskRect.bottom())
-            .arg(int(maskRect.width() * maskRect.height())),
+            .arg(newSel.left()).arg(newSel.top())
+            .arg(newSel.right()).arg(newSel.bottom())
+            .arg(sel::coverage(newMask)),
         5000);
+}
+
+void MainWindow::onRectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifiers modifiers)
+{
+    CanvasView *canvas = currentCanvas();
+    Document *doc = currentDocument();
+    if (!canvas || !doc)
+        return;
+    const QRect rect = canvasRect.intersected(QRect(QPoint(0, 0), doc->size()));
+    if (rect.isEmpty()) {
+        statusBar()->showMessage(tr("选区为空"), 2000);
+        return;
+    }
+
+    const QImage rectMask = sel::maskFromRect(rect, doc->size());
+    // 无修饰键 → 直接替换(CanvasView.endSelect 已经设好了 mask,这里只补撤销记录)
+    const bool hasModifiers = modifiers.testFlag(Qt::ShiftModifier)
+                           || modifiers.testFlag(Qt::AltModifier);
+    if (!hasModifiers) {
+        statusBar()->showMessage(tr("矩形选区 %1x%2").arg(rect.width()).arg(rect.height()), 2000);
+        return;
+    }
+
+    // 有修饰键 → 与已有 mask 做布尔运算
+    const QImage oldMask = canvas->selectionMask();
+    const QRect oldSel = canvas->selectionRect();
+    const sel::CombineOp op = combineOpFor(modifiers, !oldSel.isEmpty());
+    const QImage newMask = sel::combine(oldMask, rectMask, op, doc->size());
+    const QRect newSel = maskBoundingRect(newMask);
+    doc->undoStack()->push(new MaskCommand(canvas, oldMask, newMask,
+                                           op == sel::CombineOp::Union ? tr("加选")
+                                           : op == sel::CombineOp::Subtract ? tr("减选")
+                                                                             : tr("交集选区")));
+    if (newSel.isEmpty())
+        statusBar()->showMessage(tr("布尔运算后选区为空"), 3000);
+    else
+        statusBar()->showMessage(tr("布尔运算后选区 %1x%2").arg(newSel.width()).arg(newSel.height()), 3000);
+}
+
+void MainWindow::selectAll()
+{
+    CanvasView *canvas = currentCanvas();
+    Document *doc = currentDocument();
+    if (!canvas || !doc)
+        return;
+    const QImage oldMask = canvas->selectionMask();
+    const QImage allMask(doc->size(), QImage::Format_Grayscale8);
+    allMask.fill(255);
+    doc->undoStack()->push(new MaskCommand(canvas, oldMask, allMask, tr("全选")));
+    statusBar()->showMessage(tr("已全选"), 2000);
+}
+
+void MainWindow::selectNone()
+{
+    CanvasView *canvas = currentCanvas();
+    Document *doc = currentDocument();
+    if (!canvas || !doc)
+        return;
+    const QImage oldMask = canvas->selectionMask();
+    if (oldMask.isNull() && canvas->selectionRect().isEmpty())
+        return;
+    // 传 null 表示"清空选区"(CanvasView::setSelectionMask 对 null 会清 rect)
+    doc->undoStack()->push(new MaskCommand(canvas, oldMask, QImage(), tr("取消选择")));
+    statusBar()->showMessage(tr("已取消选择"), 2000);
+}
+
+void MainWindow::selectFeather()
+{
+    CanvasView *canvas = currentCanvas();
+    Document *doc = currentDocument();
+    if (!canvas || !doc)
+        return;
+    const QImage oldMask = canvas->selectionMask();
+    if (oldMask.isNull()) {
+        statusBar()->showMessage(tr("没有选区,请先用选区或智能选择工具"), 3000);
+        return;
+    }
+    bool ok = false;
+    const int radius = QInputDialog::getInt(this, tr("羽化选区"), tr("半径(像素)"), 4, 0, 100, 1, &ok);
+    if (!ok || radius <= 0)
+        return;
+    const QImage newMask = sel::featherMask(oldMask, radius);
+    doc->undoStack()->push(new MaskCommand(canvas, oldMask, newMask, tr("羽化选区")));
+    statusBar()->showMessage(tr("已羽化 %1 像素").arg(radius), 3000);
+}
+
+void MainWindow::selectExpand()
+{
+    CanvasView *canvas = currentCanvas();
+    Document *doc = currentDocument();
+    if (!canvas || !doc)
+        return;
+    const QImage oldMask = canvas->selectionMask();
+    if (oldMask.isNull()) {
+        statusBar()->showMessage(tr("没有选区,请先用选区或智能选择工具"), 3000);
+        return;
+    }
+    bool ok = false;
+    const int radius = QInputDialog::getInt(this, tr("扩展选区"), tr("扩展(像素)"), 4, 1, 100, 1, &ok);
+    if (!ok)
+        return;
+    const QImage newMask = sel::growMask(oldMask, radius);
+    doc->undoStack()->push(new MaskCommand(canvas, oldMask, newMask, tr("扩展选区")));
+    statusBar()->showMessage(tr("已扩展 %1 像素").arg(radius), 3000);
+}
+
+void MainWindow::selectShrink()
+{
+    CanvasView *canvas = currentCanvas();
+    Document *doc = currentDocument();
+    if (!canvas || !doc)
+        return;
+    const QImage oldMask = canvas->selectionMask();
+    if (oldMask.isNull()) {
+        statusBar()->showMessage(tr("没有选区,请先用选区或智能选择工具"), 3000);
+        return;
+    }
+    bool ok = false;
+    const int radius = QInputDialog::getInt(this, tr("收缩选区"), tr("收缩(像素)"), 4, 1, 100, 1, &ok);
+    if (!ok)
+        return;
+    const QImage newMask = sel::shrinkMask(oldMask, radius);
+    doc->undoStack()->push(new MaskCommand(canvas, oldMask, newMask, tr("收缩选区")));
+    const int cov = sel::coverage(newMask);
+    if (cov == 0)
+        statusBar()->showMessage(tr("收缩过度,选区已清空"), 3000);
+    else
+        statusBar()->showMessage(tr("已收缩 %1 像素,剩余 %2 像素").arg(radius).arg(cov), 3000);
+}
+
+void MainWindow::layerViaMask()
+{
+    Document *doc = currentDocument();
+    CanvasView *canvas = currentCanvas();
+    if (!doc || !canvas) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    Layer *src = doc->activeLayer();
+    if (!src) {
+        statusBar()->showMessage(tr("没有活动图层"), 3000);
+        return;
+    }
+    const QRect selRect = canvas->selectionRect();
+    if (selRect.isEmpty()) {
+        statusBar()->showMessage(tr("没有选区,请先用选区或智能选择工具"), 3000);
+        return;
+    }
+    const QImage mask = maskForLayerPixels(*canvas, *src, src->pixels().size());
+    if (mask.isNull() || sel::coverage(mask) == 0) {
+        statusBar()->showMessage(tr("选区为空,无法抠出图层"), 3000);
+        return;
+    }
+
+    auto *cut = new Layer(tr("%1 (拷贝)").arg(src->name()), src->pixels().size(), Qt::transparent);
+    cut->setOpacity(src->opacity());
+    doc->undoStack()->push(new LayerViaMaskCommand(doc, src, cut, selRect.translated(-src->offset()), mask));
+    statusBar()->showMessage(tr("已按选区抠出图层「%1」").arg(cut->name()), 4000);
 }
 
 void MainWindow::onUndoStackChanged()
@@ -1008,31 +1232,37 @@ void MainWindow::cropToSelection()
         statusBar()->showMessage(tr("没有活动文档"), 3000);
         return;
     }
-    if (!doc->activeLayer()) {
-        statusBar()->showMessage(tr("没有活动图层"), 3000);
-        return;
-    }
     const QRect selRect = canvas->selectionRect();
     if (selRect.isEmpty()) {
         statusBar()->showMessage(tr("没有选区,请先用选区或智能选择工具"), 3000);
         return;
     }
-
-    Layer *layer = doc->activeLayer();
-    const QImage before = layer->pixels();
-    if (before.isNull())
-        return;
-
-    // mask 感知:有 mask 用 mask 轮廓(Magic Wand),否则用矩形(RectSelect)
-    const QImage mask = maskForLayerPixels(*canvas, *layer, before.size());
-    const QImage after = sel::cropToMask(before, selRect.translated(-layer->offset()), mask);
-    if (after.isNull() || after == before) {
+    // 文档级裁剪:画布坐标系下裁到选区 bbox(所有图层 + 画布尺寸一起变)
+    const QRect full(QPoint(0, 0), doc->size());
+    const QRect newCanvas = selRect.intersected(full);
+    if (newCanvas.isEmpty() || newCanvas == full) {
         statusBar()->showMessage(tr("选区裁剪无变化"), 3000);
         return;
     }
 
-    // 裁剪改变画布尺寸 → 这会同时影响所有图层,这里只裁当前图层并在状态栏说明。
-    // 文档级裁剪(所有图层 + 画布尺寸)留待后续实现。
-    doc->undoStack()->push(new FilterCommand(layer, before, after, tr("Crop to Selection")));
-    statusBar()->showMessage(tr("已按选区裁剪图层 → %1x%2").arg(after.width()).arg(after.height()), 4000);
+    // 采集裁剪前快照(所有图层像素 + 偏移 + 画布尺寸)
+    QVector<QImage> beforePixels;
+    QVector<QPoint> beforeOffsets;
+    beforePixels.reserve(doc->layerCount());
+    beforeOffsets.reserve(doc->layerCount());
+    for (int i = 0; i < doc->layerCount(); ++i) {
+        Layer *layer = doc->layerAt(i);
+        if (!layer)
+            continue;
+        beforePixels.append(layer->pixels());
+        beforeOffsets.append(layer->offset());
+    }
+
+    doc->undoStack()->push(new CropDocumentCommand(doc, newCanvas, beforePixels, beforeOffsets,
+                                                 doc->size()));
+    canvas->zoomToFit();
+    // 裁剪后 mask 坐标系也变了,清掉避免后续操作错位
+    canvas->setSelectionMask(QImage());
+    statusBar()->showMessage(
+        tr("已按选区裁剪文档 → %1x%2").arg(newCanvas.width()).arg(newCanvas.height()), 4000);
 }

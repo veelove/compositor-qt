@@ -2,6 +2,9 @@
 
 #include <QPainter>
 
+#include <algorithm>
+#include <cmath>
+
 namespace sel {
 
 QImage maskFromRect(const QRect &rect, const QSize &imageSize)
@@ -159,6 +162,188 @@ QImage cropToMask(const QImage &src, const QRect &rect, const QImage &mask)
     if (r.isEmpty())
         return {};
     return src.copy(r);
+}
+
+// ============================== 布尔运算 ==============================
+QImage combine(const QImage &base, const QImage &add, CombineOp op, const QSize &targetSize)
+{
+    if (targetSize.isEmpty())
+        return {};
+
+    // 空集语义:null 视为全 0
+    if (base.isNull() && add.isNull())
+        return op == CombineOp::Union ? QImage() : (QImage(targetSize, QImage::Format_Grayscale8));
+
+    if (base.isNull()) {
+        // a = 空集:a ∪ b = b;a - b = 空;a ∩ b = 空
+        if (op == CombineOp::Union)
+            return resampleMask(add, targetSize);
+        QImage empty(targetSize, QImage::Format_Grayscale8);
+        empty.fill(0);
+        return empty;
+    }
+    if (add.isNull()) {
+        // b = 空集:a ∪ b = a;a - b = a;a ∩ b = 空
+        if (op == CombineOp::Intersect) {
+            QImage empty(targetSize, QImage::Format_Grayscale8);
+            empty.fill(0);
+            return empty;
+        }
+        return resampleMask(base, targetSize);
+    }
+
+    const QImage a = resampleMask(base, targetSize);
+    const QImage b = resampleMask(add, targetSize);
+    if (a.isNull() || b.isNull())
+        return {};
+
+    QImage out(targetSize, QImage::Format_Grayscale8);
+    for (int y = 0; y < out.height(); ++y) {
+        uchar *dst = out.scanLine(y);
+        const uchar *pa = a.constScanLine(y);
+        const uchar *pb = b.constScanLine(y);
+        for (int x = 0; x < out.width(); ++x) {
+            const int av = pa[x];
+            const int bv = pb[x];
+            switch (op) {
+            case CombineOp::Union:
+                dst[x] = uchar(qMax(av, bv));
+                break;
+            case CombineOp::Subtract:
+                // 用比例缩放而非直接相减,保证羽化边缘也正确:a*(1-b/255)
+                dst[x] = uchar((av * (255 - bv)) / 255);
+                break;
+            case CombineOp::Intersect:
+                dst[x] = uchar((av * bv) / 255);
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+// ============================== 选区修整 ==============================
+namespace {
+
+// 可分离盒式模糊(横向+纵向各一遍),对 Grayscale8 mask 做羽化。
+// 边缘用 clamp(取最近像素),与 filt::gaussianBlur 的边界策略一致。
+QImage boxBlurGrayscale(const QImage &src, int radius)
+{
+    if (radius <= 0 || src.isNull())
+        return src;
+    const int w = src.width();
+    const int h = src.height();
+    const int window = radius * 2 + 1;
+
+    QImage tmp(w, h, QImage::Format_Grayscale8);
+    for (int y = 0; y < h; ++y) {
+        const uchar *srcRow = src.constScanLine(y);
+        uchar *dstRow = tmp.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+            int sum = 0;
+            for (int k = -radius; k <= radius; ++k) {
+                int sx = x + k;
+                if (sx < 0) sx = 0;
+                else if (sx >= w) sx = w - 1;
+                sum += srcRow[sx];
+            }
+            dstRow[x] = uchar(sum / window);
+        }
+    }
+
+    QImage out(w, h, QImage::Format_Grayscale8);
+    for (int y = 0; y < h; ++y) {
+        const uchar *tmpRow = tmp.constScanLine(y);
+        uchar *dstRow = out.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+            int sum = 0;
+            for (int k = -radius; k <= radius; ++k) {
+                int sy = y + k;
+                if (sy < 0) sy = 0;
+                else if (sy >= h) sy = h - 1;
+                sum += tmpRow[sy * w + x];
+            }
+            dstRow[x] = uchar(sum / window);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+QImage featherMask(const QImage &mask, double radius)
+{
+    if (mask.isNull() || radius <= 0.0)
+        return mask;
+    const int r = int(std::ceil(radius));
+    return boxBlurGrayscale(mask.convertToFormat(QImage::Format_Grayscale8), r);
+}
+
+QImage growMask(const QImage &mask, int radius)
+{
+    if (mask.isNull() || radius <= 0)
+        return mask;
+    const QImage m = mask.convertToFormat(QImage::Format_Grayscale8);
+    const int w = m.width();
+    const int h = m.height();
+
+    // 形态学膨胀:dst(x,y) = max(src(x+dx, y+dy)),dx,dy ∈ [-r, r]
+    // 等价于"半径 r 的方形结构元素",与 Photoshop 的扩展(Expand)语义一致。
+    QImage out(w, h, QImage::Format_Grayscale8);
+    for (int y = 0; y < h; ++y) {
+        uchar *dst = out.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+            int best = 0;
+            for (int dy = -radius; dy <= radius; ++dy) {
+                int sy = y + dy;
+                if (sy < 0) sy = 0;
+                else if (sy >= h) sy = h - 1;
+                const uchar *srcRow = m.constScanLine(sy);
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    int sx = x + dx;
+                    if (sx < 0) sx = 0;
+                    else if (sx >= w) sx = w - 1;
+                    if (srcRow[sx] > best)
+                        best = srcRow[sx];
+                }
+            }
+            dst[x] = uchar(best);
+        }
+    }
+    return out;
+}
+
+QImage shrinkMask(const QImage &mask, int radius)
+{
+    if (mask.isNull() || radius <= 0)
+        return mask;
+    const QImage m = mask.convertToFormat(QImage::Format_Grayscale8);
+    const int w = m.width();
+    const int h = m.height();
+
+    // 形态学腐蚀:dst(x,y) = min(src(x+dx, y+dy)),dx,dy ∈ [-r, r]
+    QImage out(w, h, QImage::Format_Grayscale8);
+    for (int y = 0; y < h; ++y) {
+        uchar *dst = out.scanLine(y);
+        for (int x = 0; x < w; ++x) {
+            int worst = 255;
+            for (int dy = -radius; dy <= radius; ++dy) {
+                int sy = y + dy;
+                if (sy < 0) sy = 0;
+                else if (sy >= h) sy = h - 1;
+                const uchar *srcRow = m.constScanLine(sy);
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    int sx = x + dx;
+                    if (sx < 0) sx = 0;
+                    else if (sx >= w) sx = w - 1;
+                    if (srcRow[sx] < worst)
+                        worst = srcRow[sx];
+                }
+            }
+            dst[x] = uchar(worst);
+        }
+    }
+    return out;
 }
 
 } // namespace sel

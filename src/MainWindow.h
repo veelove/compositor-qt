@@ -14,6 +14,7 @@ class QImage;
 class QTabWidget;
 
 namespace adjui { struct LutApplyResult; }
+namespace sel { enum class CombineOp; }
 
 class MainWindow : public QMainWindow
 {
@@ -83,10 +84,21 @@ private:
     void adjColorBalanceLive();
 
     void onColorPicked(const QColor &color);
-    void onMagicWand(const QPoint &canvasPos);
+    void onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifiers modifiers);
+    void onRectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifiers modifiers);
     void onUndoStackChanged();
     // 按选区裁剪(Magic Wand 用 mask 轮廓,RectSelect 用矩形)
     void cropToSelection();
+    // Select 菜单:羽化 / 扩展 / 收缩(都走 MaskCommand,可撤销)
+    void selectAll();
+    void selectNone();
+    void selectFeather();
+    void selectExpand();
+    void selectShrink();
+    // Layer 菜单:通过剪贴的图层(按当前选区抠出独立图层)
+    void layerViaMask();
+    // 修饰键 → 布尔运算模式
+    static sel::CombineOp combineOpFor(Qt::KeyboardModifiers mods, bool hasExistingSelection);
 
     QTabWidget *m_tabs = nullptr;
     LayersPanel *m_layersPanel = nullptr;
@@ -129,6 +141,14 @@ private:
     QAction *m_adjInvertAction = nullptr;
     QAction *m_adjResetAction = nullptr;
     QAction *m_cropToSelectionAction = nullptr;
+    // Select 菜单
+    QAction *m_selectAllAction = nullptr;
+    QAction *m_selectNoneAction = nullptr;
+    QAction *m_selectFeatherAction = nullptr;
+    QAction *m_selectExpandAction = nullptr;
+    QAction *m_selectShrinkAction = nullptr;
+    // Layer 菜单
+    QAction *m_layerViaMaskAction = nullptr;
     QAction *m_adjGaussianLiveAction = nullptr;
     QAction *m_adjVignetteLiveAction = nullptr;
     QAction *m_adjMotionBlurLiveAction = nullptr;

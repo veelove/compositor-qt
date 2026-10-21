@@ -5,7 +5,9 @@
 #include <QImage>
 #include <QPoint>
 #include <QRect>
+#include <QSize>
 #include <QUndoCommand>
+#include <QVector>
 
 class CanvasView;
 class Document;
@@ -261,6 +263,72 @@ private:
     QRect m_after;
     QImage m_beforeMask;
     QImage m_afterMask;
+};
+
+// 选区修整(羽化 / 扩展 / 收缩):只改 mask,不动画布内容。
+// 撤销栈里记录 before/after 两份 mask,Ctrl+Z 精确还原选区形状。
+class MaskCommand : public QUndoCommand
+{
+public:
+    MaskCommand(CanvasView *canvas, const QImage &before, const QImage &after,
+                const QString &name, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    CanvasView *m_canvas;
+    QImage m_before;
+    QImage m_after;
+};
+
+// 文档级裁剪:同时裁剪所有图层像素 + 改画布尺寸 + 平移图层偏移。
+// 对齐 Photoshop 的 Image → Crop(裁剪影响整个文档,不是单个图层)。
+class CropDocumentCommand : public QUndoCommand
+{
+public:
+    CropDocumentCommand(Document *document, const QRect &newCanvasRect,
+                        const QVector<QImage> &beforePixels,
+                        const QVector<QPoint> &beforeOffsets,
+                        const QSize &beforeCanvasSize,
+                        QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    void applyCrop(const QRect &newCanvasRect, const QVector<QImage> &pixels,
+                   const QVector<QPoint> &offsets, const QSize &canvasSize);
+
+    Document *m_document;
+    QRect m_beforeRect;     // 裁剪前的有效区域(画布坐标)
+    QVector<QImage> m_beforePixels;
+    QVector<QPoint> m_beforeOffsets;
+    QSize m_beforeCanvasSize;
+    QRect m_afterRect;
+    QVector<QImage> m_afterPixels;
+    QVector<QPoint> m_afterOffsets;
+    QSize m_afterCanvasSize;
+};
+
+// 通过剪贴的图层:把活动图层按当前选区(mask)抠成独立图层。
+// 原图层保留"挖空后"的像素(选区内被清透明),新图层承载被抠出的内容。
+// 无 mask 时退化为按 selectionRect 矩形抠图。
+class LayerViaMaskCommand : public QUndoCommand
+{
+public:
+    LayerViaMaskCommand(Document *document, Layer *sourceLayer, Layer *cutLayer,
+                        const QRect &selRect, const QImage &mask,
+                        QUndoCommand *parent = nullptr);
+    ~LayerViaMaskCommand() override;
+    void undo() override;
+    void redo() override;
+
+private:
+    Document *m_document;
+    Layer *m_sourceLayer;
+    Layer *m_cutLayer;
+    QRect m_selRect;
+    QImage m_mask;
+    QImage m_sourceBefore; // 原图层挖空前的整层快照
 };
 
 // Magic Wand 复合命令:把"新建 mask 图层"与"设置选区矩形"绑定为一次撤销单元。

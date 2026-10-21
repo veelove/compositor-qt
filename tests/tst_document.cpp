@@ -98,6 +98,11 @@ private slots:
     void selClearByMaskRespectsShape();
     void selCropToMaskBounds();
     void clearMaskCommandUndoRedo();
+    void selCombineBooleanOps();
+    void selFeatherGrowShrink();
+    void maskCommandUndoRedo();
+    void cropDocumentCommandUndoRedo();
+    void layerViaMaskCommandUndoRedo();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1773,6 +1778,208 @@ void TestDocument::clearMaskCommandUndoRedo()
     // redo:再次清除
     stack.redo();
     QCOMPARE(layer->pixels().pixelColor(4, 4).alpha(), 0);
+}
+
+// ============================== 布尔运算 ==============================
+void TestDocument::selCombineBooleanOps()
+{
+    const QSize sz(8, 8);
+    // a = 左半边 (0,0)-(3,7),b = 上半边 (0,0)-(7,3)
+    const QImage a = sel::maskFromRect(QRect(0, 0, 4, 8), sz);
+    const QImage b = sel::maskFromRect(QRect(0, 0, 8, 4), sz);
+    QCOMPARE(sel::coverage(a), 32);
+    QCOMPARE(sel::coverage(b), 32);
+
+    // Union:面积 = 32 + 32 - 16(重叠 4x4) = 48
+    const QImage u = sel::combine(a, b, sel::CombineOp::Union, sz);
+    QCOMPARE(u.size(), sz);
+    QCOMPARE(sel::coverage(u), 48);
+    QCOMPARE(maskValue(u, 1, 1), 255); // 重叠区
+    QCOMPARE(maskValue(u, 5, 5), 255); // 仅 a
+    QCOMPARE(maskValue(u, 1, 5), 255); // 仅 b
+
+    // Subtract:a - b → 48 - 32 = 16(左下角 4x4)
+    const QImage s = sel::combine(a, b, sel::CombineOp::Subtract, sz);
+    QCOMPARE(sel::coverage(s), 16);
+    QCOMPARE(maskValue(s, 1, 5), 255); // 仅 a 的部分
+    QCOMPARE(maskValue(s, 5, 1), 0);   // 仅 b 的部分被减掉
+    QCOMPARE(maskValue(s, 1, 1), 0);   // 重叠被减掉
+
+    // Intersect:a ∩ b = 左上 4x4 = 16
+    const QImage i = sel::combine(a, b, sel::CombineOp::Intersect, sz);
+    QCOMPARE(sel::coverage(i), 16);
+    QCOMPARE(maskValue(i, 1, 1), 255);
+    QCOMPARE(maskValue(i, 5, 1), 0);
+    QCOMPARE(maskValue(i, 1, 5), 0);
+
+    // 空集语义
+    const QImage none;
+    QCOMPARE(sel::combine(none, b, sel::CombineOp::Union, sz), b);   // 空 ∪ b = b
+    QCOMPARE(sel::coverage(sel::combine(none, b, sel::CombineOp::Subtract, sz)), 0); // 空 - b = 空
+    QCOMPARE(sel::coverage(sel::combine(a, none, sel::CombineOp::Intersect, sz)), 0); // a ∩ 空 = 空
+    QCOMPARE(sel::combine(a, none, sel::CombineOp::Union, sz), a);   // a ∪ 空 = a
+
+    // 羽化边缘参与运算:一半强度相减应得到约一半
+    QImage halfA(8, 8, QImage::Format_Grayscale8); halfA.fill(255);
+    QImage halfB(8, 8, QImage::Format_Grayscale8); halfB.fill(128);
+    const QImage soft = sel::combine(halfA, halfB, sel::CombineOp::Subtract, sz);
+    QCOMPARE(maskValue(soft, 4, 4), 255 - 128); // 255*(255-128)/255 = 127
+}
+
+void TestDocument::selFeatherGrowShrink()
+{
+    const QSize sz(8, 8);
+    const QImage center = makeCenterMask4(sz); // 中心 4x4
+    QCOMPARE(sel::coverage(center), 16);
+
+    // feather:半径 1 → 边缘出现中间值,总面积(非零)可能扩大但边缘变软
+    const QImage feathered = sel::featherMask(center, 1.0);
+    QCOMPARE(feathered.size(), sz);
+    QCOMPARE(feathered.format(), QImage::Format_Grayscale8);
+    // 中心仍是最亮
+    QCOMPARE(maskValue(feathered, 4, 4), 255);
+    // 紧邻原选区边界的像素应出现过渡值(0 < v < 255)
+    const int edge = maskValue(feathered, 1, 4);
+    QVERIFY2(edge > 0 && edge < 255, qPrintable(QString("edge=%1").arg(edge)));
+    // radius=0 → 原样
+    QCOMPARE(sel::featherMask(center, 0.0), center);
+
+    // grow:半径 1 → 选区向外扩张,bbox 变大
+    const QImage grown = sel::growMask(center, 1);
+    QCOMPARE(grown.size(), sz);
+    QVERIFY(sel::coverage(grown) > 16);
+    // 原来(1,4)在选区外,grow 后应在区内
+    QCOMPARE(maskValue(grown, 1, 4), 255);
+    // radius=0 → 原样
+    QCOMPARE(sel::growMask(center, 0), center);
+
+    // shrink:半径 1 → 选区向内收缩,bbox 变小
+    const QImage shrunk = sel::shrinkMask(center, 1);
+    QCOMPARE(shrunk.size(), sz);
+    QVERIFY(sel::coverage(shrunk) < 16);
+    // 原来的边界 (2,4) 现在应在外
+    QCOMPARE(maskValue(shrunk, 2, 4), 0);
+    // 中心仍在
+    QCOMPARE(maskValue(shrunk, 4, 4), 255);
+
+    // shrink 过度 → 全 0 但不是 null
+    const QImage tiny = sel::shrinkMask(makeCenterMask4(QSize(4, 4)), 3);
+    QCOMPARE(sel::coverage(tiny), 0);
+    QVERIFY(!tiny.isNull());
+
+    // null mask 一律原样返回
+    QVERIFY(sel::featherMask(QImage(), 5.0).isNull());
+    QVERIFY(sel::growMask(QImage(), 5).isNull());
+    QVERIFY(sel::shrinkMask(QImage(), 5).isNull());
+}
+
+void TestDocument::maskCommandUndoRedo()
+{
+    Document doc(QSize(8, 8));
+    CanvasView view;
+    view.setDocument(&doc);
+
+    const QImage before = makeCenterMask4(QSize(8, 8));
+    const QImage after = sel::growMask(before, 1);
+    view.setSelectionMask(before);
+    QCOMPARE(view.selectionRect(), QRect(2, 2, 4, 4));
+
+    QUndoStack stack;
+    stack.push(new MaskCommand(&view, before, after, QStringLiteral("Expand")));
+    QCOMPARE(sel::coverage(view.selectionMask()), sel::coverage(after));
+
+    stack.undo();
+    QCOMPARE(sel::coverage(view.selectionMask()), 16); // 回到 before
+    QCOMPARE(view.selectionRect(), QRect(2, 2, 4, 4));
+
+    stack.redo();
+    QCOMPARE(sel::coverage(view.selectionMask()), sel::coverage(after));
+
+    // null after(取消选择)→ selectionRect 被清空
+    stack.push(new MaskCommand(&view, after, QImage(), QStringLiteral("None")));
+    QVERIFY(view.selectionRect().isEmpty());
+    stack.undo();
+    QCOMPARE(sel::coverage(view.selectionMask()), sel::coverage(after));
+}
+
+void TestDocument::cropDocumentCommandUndoRedo()
+{
+    // 文档级裁剪:画布尺寸 + 所有图层像素 + 图层偏移一起变
+    Document doc(QSize(8, 8));
+    auto *l0 = new Layer(QStringLiteral("L0"), QSize(8, 8), QColor(255, 0, 0, 255));
+    doc.addLayer(l0);
+    auto *l1 = new Layer(QStringLiteral("L1"), QSize(8, 8), QColor(0, 0, 255, 255));
+    l1->setOffset(QPoint(1, 1));
+    doc.addLayer(l1);
+    QCOMPARE(doc.size(), QSize(8, 8));
+
+    QVector<QImage> beforePixels;
+    QVector<QPoint> beforeOffsets;
+    beforePixels << l0->pixels() << l1->pixels();
+    beforeOffsets << l0->offset() << l1->offset();
+
+    // 裁剪到 (2,2)-(5,5) → 4x4
+    QUndoStack stack;
+    stack.push(new CropDocumentCommand(&doc, QRect(2, 2, 4, 4), beforePixels, beforeOffsets,
+                                       QSize(8, 8)));
+
+    // 画布尺寸变了
+    QCOMPARE(doc.size(), QSize(4, 4));
+    // 图层像素被裁到新尺寸
+    QCOMPARE(l0->pixels().size(), QSize(4, 4));
+    QCOMPARE(l1->pixels().size(), QSize(4, 4));
+    // 偏移被平移
+    QCOMPARE(l0->offset(), QPoint(-2, -2));
+    QCOMPARE(l1->offset(), QPoint(-1, -1));
+
+    stack.undo();
+    QCOMPARE(doc.size(), QSize(8, 8));
+    QCOMPARE(l0->pixels().size(), QSize(8, 8));
+    QCOMPARE(l0->offset(), QPoint(0, 0));
+    QCOMPARE(l1->offset(), QPoint(1, 1));
+    QCOMPARE(l0->pixels().pixelColor(0, 0), QColor(255, 0, 0, 255));
+
+    stack.redo();
+    QCOMPARE(doc.size(), QSize(4, 4));
+    QCOMPARE(l0->offset(), QPoint(-2, -2));
+}
+
+void TestDocument::layerViaMaskCommandUndoRedo()
+{
+    Document doc(QSize(8, 8));
+    auto *src = new Layer(QStringLiteral("bg"), QSize(8, 8), QColor(0, 200, 0, 255));
+    doc.addLayer(src);
+    QCOMPARE(doc.layerCount(), 1);
+
+    const QImage mask = makeCenterMask4(QSize(8, 8)); // 中心 4x4
+    auto *cut = new Layer(QStringLiteral("cut"), QSize(8, 8), Qt::transparent);
+    const QRect selRect(2, 2, 4, 4);
+
+    QUndoStack stack;
+    stack.push(new LayerViaMaskCommand(&doc, src, cut, selRect, mask));
+
+    // 新图层插入到源图层之上
+    QCOMPARE(doc.layerCount(), 2);
+    QCOMPARE(doc.activeLayer(), cut);
+    // 抠出的图层:选区内有内容,选区外透明
+    QCOMPARE(cut->pixels().pixelColor(4, 4).alpha(), 255);
+    QCOMPARE(cut->pixels().pixelColor(4, 4).green(), 200);
+    QCOMPARE(cut->pixels().pixelColor(0, 0).alpha(), 0);
+    // 原图层被挖空:选区内透明,选区外保留
+    QCOMPARE(src->pixels().pixelColor(4, 4).alpha(), 0);
+    QCOMPARE(src->pixels().pixelColor(0, 0).alpha(), 255);
+    QCOMPARE(src->pixels().pixelColor(0, 0).green(), 200);
+
+    stack.undo();
+    QCOMPARE(doc.layerCount(), 1);
+    QCOMPARE(doc.activeLayer(), src);
+    // 原图层完整还原
+    QCOMPARE(src->pixels().pixelColor(4, 4).alpha(), 255);
+    QCOMPARE(src->pixels().pixelColor(4, 4).green(), 200);
+
+    stack.redo();
+    QCOMPARE(doc.layerCount(), 2);
+    QCOMPARE(src->pixels().pixelColor(4, 4).alpha(), 0);
 }
 
 QTEST_MAIN(TestDocument)

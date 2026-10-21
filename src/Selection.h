@@ -43,4 +43,30 @@ QImage clearByMask(const QImage &src, const QRect &rect, const QImage &mask);
 // mask 为 null 时按 rect 裁剪;rect 为空返回 null。
 QImage cropToMask(const QImage &src, const QRect &rect, const QImage &mask);
 
+// ============================== 布尔运算 ==============================
+// 选区组合模式,对齐 Photoshop 的 Shift/Alt 修饰键行为。
+enum class CombineOp {
+    Union,      // 加选:a ∪ b
+    Subtract,   // 减选:a - b
+    Intersect   // 交集:a ∩ b
+};
+
+// 把 base 与 add 按 op 组合,返回新的 mask。
+// 任一为 null 时按"空集"处理:Union 返回另一个,Subtract/Intersect 返回全 0。
+// 两边尺寸不一致时以 targetSize 为准(内部 smooth 缩放)。
+QImage combine(const QImage &base, const QImage &add, CombineOp op, const QSize &targetSize);
+
+// ============================== 选区修整(Photoshop Select→Modify) ==============================
+// 羽化:对 mask 做半径 radius 的盒式模糊,产生半透明过渡边缘。
+// radius<=0 返回原 mask;这是"扩展/收缩"的共同基础。
+QImage featherMask(const QImage &mask, double radius);
+
+// 扩展(grow):半径 radius 的形态学膨胀,选区轮廓向外扩张 radius 像素。
+// radius<=0 返回原 mask。
+QImage growMask(const QImage &mask, int radius);
+
+// 收缩(shrink):半径 radius 的形态学腐蚀,选区轮廓向内收缩 radius 像素。
+// radius<=0 返回原 mask;收缩到全空时返回全 0 mask(而不是 null)。
+QImage shrinkMask(const QImage &mask, int radius);
+
 } // namespace sel

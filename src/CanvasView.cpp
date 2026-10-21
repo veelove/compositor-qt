@@ -4,6 +4,7 @@
 #include "Layer.h"
 #include "PainterRenderer.h"
 #include "Renderer.h"
+#include "Selection.h"
 #include "UndoCommands.h"
 
 #include <QKeyEvent>
@@ -201,10 +202,10 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         pickColor(canvasPos);
         break;
     case Tool::RectSelect:
-        beginSelect(canvasPos);
+        beginSelect(canvasPos, event->modifiers());
         break;
     case Tool::MagicWand:
-        emit magicWandTriggered(canvasPos);
+        emit magicWandTriggered(canvasPos, event->modifiers());
         break;
     }
     event->accept();
@@ -296,8 +297,11 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
         return;
     }
     if (event->key() == Qt::Key_Escape) {
-        if (!m_selection.isEmpty()) {
+        if (!m_selection.isEmpty() || !m_selectionMask.isNull()) {
             m_selection = QRect();
+            m_selectionMask = QImage();
+            m_selectionModifiers = Qt::NoModifier;
+            emit selectionChanged(m_selection);
             update();
         }
         event->accept();
@@ -392,11 +396,12 @@ void CanvasView::pickColor(const QPoint &canvasPos)
 }
 
 // ---------------------------- RectSelect 工具 ----------------------------
-void CanvasView::beginSelect(const QPoint &canvasPos)
+void CanvasView::beginSelect(const QPoint &canvasPos, Qt::KeyboardModifiers mods)
 {
     m_selecting = true;
     m_selectStart = canvasPos;
     m_selection = QRect(canvasPos, canvasPos);
+    m_selectionModifiers = mods;
     update();
 }
 
@@ -411,6 +416,12 @@ void CanvasView::dragSelect(const QPoint &canvasPos)
 void CanvasView::endSelect()
 {
     m_selecting = false;
+    // 拖拽过程中 m_selection 是"预览",定稿时若没有 mask 就用矩形生成一个,
+    // 让矩形选区与 Magic Wand 走完全一致的 mask 管线(布尔运算/羽化/滤镜均可用)。
+    if (m_selectionMask.isNull() && !m_selection.isEmpty())
+        m_selectionMask = sel::maskFromRect(m_selection, m_document->size());
+    emit selectionChanged(m_selection);
+    emit rectSelectFinished(m_selection, m_selectionModifiers);
     update();
 }
 
