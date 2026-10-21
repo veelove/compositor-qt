@@ -40,6 +40,7 @@
 #include <QTabWidget>
 #include <QToolBar>
 #include <QUrl>
+#include <QVector>
 
 #include <optional>
 
