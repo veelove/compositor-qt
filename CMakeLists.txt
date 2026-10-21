@@ -27,6 +27,7 @@ qt_add_library(CompositorCore STATIC
     src/AdjustLut.h src/AdjustLut.cpp
     src/Filters.h src/Filters.cpp
     src/Geometry.h src/Geometry.cpp
+    src/Selection.h src/Selection.cpp
     src/RawProvider.h src/RawProvider.cpp
     src/VisionProvider.h src/VisionProvider.cpp
     # CanvasView 放进核心库:SelectionCommand 需要 CanvasView 完整定义,

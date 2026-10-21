@@ -3,6 +3,7 @@
 #include "CanvasView.h"
 #include "Document.h"
 #include "Layer.h"
+#include "Selection.h"
 
 #include <QPainter>
 
@@ -101,6 +102,36 @@ void ClearRectCommand::redo()
     p.fillRect(m_rect, Qt::transparent);
     p.end();
     emit m_layer->changed();
+}
+
+// ---------------------------------------------------------------------------
+// ClearMaskCommand
+// ---------------------------------------------------------------------------
+ClearMaskCommand::ClearMaskCommand(Layer *layer, const QRect &rect, const QImage &mask,
+                                   const QImage &before, QUndoCommand *parent)
+    : QUndoCommand(QObject::tr("Clear Selection (Mask)"), parent)
+    , m_layer(layer)
+    , m_rect(rect)
+    , m_mask(mask)
+    , m_before(before)
+{
+}
+
+void ClearMaskCommand::undo()
+{
+    // m_before 是 m_rect 区域的快照,直接覆盖回去即可完整还原
+    blitRegion(m_layer, m_rect, m_before);
+}
+
+void ClearMaskCommand::redo()
+{
+    QImage px = m_layer->pixels();
+    const QImage cleared = sel::clearByMask(px, m_rect, m_mask);
+    if (cleared.isNull()) {
+        emit m_layer->changed();
+        return;
+    }
+    blitRegion(m_layer, m_rect, cleared.copy(m_rect));
 }
 
 // ---------------------------------------------------------------------------

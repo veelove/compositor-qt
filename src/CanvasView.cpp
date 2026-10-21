@@ -429,11 +429,41 @@ void CanvasView::clearSelection()
         return;
     }
     const QImage before = layer->pixels().copy(pixelRect);
-    if (m_undoStack)
-        m_undoStack->push(new ClearRectCommand(layer, pixelRect, before));
+    if (m_undoStack) {
+        // 有 mask(Magic Wand)→ 按真实轮廓清除;否则退回矩形清除(RectSelect)
+        const QImage mask = selectionMaskForLayer(*layer, pixelRect);
+        if (!mask.isNull())
+            m_undoStack->push(new ClearMaskCommand(layer, pixelRect, mask, before));
+        else
+            m_undoStack->push(new ClearRectCommand(layer, pixelRect, before));
+    }
     m_selection = QRect();
     m_selectionMask = QImage();
     update();
+}
+
+QImage CanvasView::selectionMaskForLayer(const Layer &layer, const QRect &pixelRect) const
+{
+    Q_UNUSED(pixelRect);
+    // 把画布坐标系的 mask 转换到图层像素坐标系:
+    //   mask_layer(x, y) = mask_canvas(x + offset.x, y + offset.y)
+    // 图层偏移外的部分自然落在图外被裁掉。
+    // 返回 null 表示"没有可用 mask",调用方应退回矩形行为。
+    if (m_selectionMask.isNull())
+        return {};
+    if (m_selectionMask.size() != documentSize())
+        return {};
+    const QSize layerSize = layer.pixels().size();
+    if (layerSize.isEmpty())
+        return {};
+
+    QImage out(layerSize, QImage::Format_Grayscale8);
+    out.fill(0);
+    {
+        QPainter p(&out);
+        p.drawImage(QPoint(-layer.offset().x(), -layer.offset().y()), m_selectionMask);
+    }
+    return out;
 }
 
 void CanvasView::setSelectionRect(const QRect &rect)

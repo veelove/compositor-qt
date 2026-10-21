@@ -85,6 +85,8 @@ private:
     void onColorPicked(const QColor &color);
     void onMagicWand(const QPoint &canvasPos);
     void onUndoStackChanged();
+    // 按选区裁剪(Magic Wand 用 mask 轮廓,RectSelect 用矩形)
+    void cropToSelection();
 
     QTabWidget *m_tabs = nullptr;
     LayersPanel *m_layersPanel = nullptr;
@@ -126,6 +128,7 @@ private:
     QAction *m_adjCbAction = nullptr;
     QAction *m_adjInvertAction = nullptr;
     QAction *m_adjResetAction = nullptr;
+    QAction *m_cropToSelectionAction = nullptr;
     QAction *m_adjGaussianLiveAction = nullptr;
     QAction *m_adjVignetteLiveAction = nullptr;
     QAction *m_adjMotionBlurLiveAction = nullptr;

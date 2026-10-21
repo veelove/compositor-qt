@@ -13,6 +13,7 @@
 #include "PsdReader.h"
 #include "PsdWriter.h"
 #include "RawProvider.h"
+#include "Selection.h"
 #include "UndoCommands.h"
 #include "VisionProvider.h"
 
@@ -33,6 +34,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
@@ -40,6 +42,31 @@
 #include <QUrl>
 
 #include <optional>
+
+namespace {
+
+// 把 CanvasView 的画布坐标系 mask 转到指定图层的像素坐标系(按 targetSize 缩放)。
+// 返回 null 表示当前没有可用 mask,调用方应退回"整层处理"。
+QImage maskForLayerPixels(const CanvasView &canvas, const Layer &layer, const QSize &targetSize)
+{
+    const QImage canvasMask = canvas.selectionMask();
+    if (canvasMask.isNull())
+        return {};
+    const QSize layerSize = layer.pixels().size();
+    if (layerSize.isEmpty())
+        return {};
+    QImage out(layerSize, QImage::Format_Grayscale8);
+    out.fill(0);
+    {
+        QPainter p(&out);
+        p.drawImage(QPoint(-layer.offset().x(), -layer.offset().y()), canvasMask);
+    }
+    if (out.size() != targetSize)
+        return sel::resampleMask(out, targetSize);
+    return out;
+}
+
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -380,12 +407,23 @@ void MainWindow::applyFilterToActiveLayer(const QString &name,
         statusBar()->showMessage(tr("没有活动图层"), 3000);
         return;
     }
+    CanvasView *canvas = currentCanvas();
     Layer *layer = doc->activeLayer();
     const QImage before = layer->pixels();
     if (before.isNull())
         return;
-    const QImage after = fn(before);
-    if (after.isNull() || after == before)
+    const QImage processed = fn(before);
+    if (processed.isNull())
+        return;
+
+    // 有 mask(Magic Wand)→ 滤镜只作用于选区内,选区外保持原样(羽化边缘自然过渡)
+    QImage after = processed;
+    if (canvas && !canvas->selectionMask().isNull()) {
+        const QImage mask = maskForLayerPixels(*canvas, *layer, before.size());
+        if (!mask.isNull())
+            after = sel::blendByMask(before, processed, mask);
+    }
+    if (after == before)
         return;
     doc->undoStack()->push(new FilterCommand(layer, before, after, name));
     statusBar()->showMessage(tr("已应用 %1").arg(name), 3000);
@@ -732,6 +770,9 @@ void MainWindow::createActions()
     connect(m_adjInvertAction, &QAction::triggered, this, &MainWindow::adjInvert);
     m_adjResetAction = new QAction(tr("&Reset Adjustments"), this);
     connect(m_adjResetAction, &QAction::triggered, this, &MainWindow::adjResetLut);
+    m_cropToSelectionAction = new QAction(tr("Crop to &Selection"), this);
+    m_cropToSelectionAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Shift | Qt::Key_C));
+    connect(m_cropToSelectionAction, &QAction::triggered, this, &MainWindow::cropToSelection);
 
     m_adjGaussianLiveAction = new QAction(tr("Gaussian Blur (GPU)..."), this);
     connect(m_adjGaussianLiveAction, &QAction::triggered, this, &MainWindow::adjGaussianBlurLive);
@@ -784,6 +825,8 @@ void MainWindow::createMenus()
     imageMenu->addAction(m_adjCbAction);
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjInvertAction);
+    imageMenu->addSeparator();
+    imageMenu->addAction(m_cropToSelectionAction);
     imageMenu->addSeparator();
     imageMenu->addAction(m_adjGaussianLiveAction);
     imageMenu->addAction(m_adjVignetteLiveAction);
@@ -955,4 +998,41 @@ void MainWindow::onUndoStackChanged()
 {
     if (auto *tab = currentTab())
         updateTitleFromTab(tab);
+}
+
+void MainWindow::cropToSelection()
+{
+    Document *doc = currentDocument();
+    CanvasView *canvas = currentCanvas();
+    if (!doc || !canvas) {
+        statusBar()->showMessage(tr("没有活动文档"), 3000);
+        return;
+    }
+    if (!doc->activeLayer()) {
+        statusBar()->showMessage(tr("没有活动图层"), 3000);
+        return;
+    }
+    const QRect selRect = canvas->selectionRect();
+    if (selRect.isEmpty()) {
+        statusBar()->showMessage(tr("没有选区,请先用选区或智能选择工具"), 3000);
+        return;
+    }
+
+    Layer *layer = doc->activeLayer();
+    const QImage before = layer->pixels();
+    if (before.isNull())
+        return;
+
+    // mask 感知:有 mask 用 mask 轮廓(Magic Wand),否则用矩形(RectSelect)
+    const QImage mask = maskForLayerPixels(*canvas, *layer, before.size());
+    const QImage after = sel::cropToMask(before, selRect.translated(-layer->offset()), mask);
+    if (after.isNull() || after == before) {
+        statusBar()->showMessage(tr("选区裁剪无变化"), 3000);
+        return;
+    }
+
+    // 裁剪改变画布尺寸 → 这会同时影响所有图层,这里只裁当前图层并在状态栏说明。
+    // 文档级裁剪(所有图层 + 画布尺寸)留待后续实现。
+    doc->undoStack()->push(new FilterCommand(layer, before, after, tr("Crop to Selection")));
+    statusBar()->showMessage(tr("已按选区裁剪图层 → %1x%2").arg(after.width()).arg(after.height()), 4000);
 }

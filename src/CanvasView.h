@@ -77,6 +77,9 @@ protected:
 
 private:
     QSize documentSize() const;
+    // 把画布坐标系的 selectionMask 转到指定图层的像素坐标系。
+    // 返回 null 表示当前没有 mask(纯矩形选区),调用方应退回矩形行为。
+    QImage selectionMaskForLayer(const Layer &layer, const QRect &pixelRect) const;
     QPointF canvasToView(const QPointF &p) const { return p * m_zoom + m_pan; }
     QPointF viewToCanvas(const QPointF &p) const { return (p - m_pan) / m_zoom; }
     void applyZoom(double factor, const QPointF &anchor);

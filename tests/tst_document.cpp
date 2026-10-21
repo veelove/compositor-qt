@@ -14,6 +14,7 @@
 #include "PsdReader.h"
 #include "PsdWriter.h"
 #include "RawProvider.h"
+#include "Selection.h"
 #include "UndoCommands.h"
 #include "VisionProvider.h"
 
@@ -92,6 +93,11 @@ private slots:
     void magicWandMaskBoundingRect();
     void selectionCommandUndoRedo();
     void magicWandCompositeCommand();
+    void selMaskPrimitives();
+    void selBlendByMaskRespectsShape();
+    void selClearByMaskRespectsShape();
+    void selCropToMaskBounds();
+    void clearMaskCommandUndoRedo();
 };
 
 void TestDocument::addRemoveLayer()
@@ -1574,6 +1580,199 @@ void TestDocument::magicWandCompositeCommand()
     QCOMPARE(doc.layerCount(), 2);
     QCOMPARE(view.selectionRect(), QRect(2, 2, 4, 4));
     QCOMPARE(doc.layers().at(1)->name(), QStringLiteral("Magic Wand Mask"));
+}
+
+// ============================== Selection 原语 ==============================
+namespace {
+// 构造一个 8x8 mask:中心 4x4 区域为 255,四角为 0
+QImage makeCenterMask4(const QSize &size = QSize(8, 8))
+{
+    QImage m(size, QImage::Format_Grayscale8);
+    m.fill(0);
+    const int x0 = (size.width() - 4) / 2;
+    const int y0 = (size.height() - 4) / 2;
+    for (int y = y0; y < y0 + 4; ++y)
+        for (int x = x0; x < x0 + 4; ++x)
+            m.setPixel(x, y, 255);
+    return m;
+}
+// Grayscale8 上 QImage::pixel() 返回 QRgb(会做灰度→ARGB 展开),
+// 直接读字节才是原始 mask 值,断言必须用它。
+int maskValue(const QImage &mask, int x, int y)
+{
+    return mask.constScanLine(y)[x];
+}
+} // namespace
+
+void TestDocument::selMaskPrimitives()
+{
+    const QSize sz(8, 8);
+
+    // maskFromRect:矩形内 255,外 0
+    const QImage r = sel::maskFromRect(QRect(2, 2, 4, 4), sz);
+    QCOMPARE(r.size(), sz);
+    QCOMPARE(r.format(), QImage::Format_Grayscale8);
+    QCOMPARE(maskValue(r, 3, 3), 255);
+    QCOMPARE(maskValue(r, 0, 0), 0);
+    QCOMPARE(sel::coverage(r), 16); // 4x4 = 16
+
+    // coverage:中心 mask 同样是 16
+    QCOMPARE(sel::coverage(makeCenterMask4(sz)), 16);
+
+    // 全 0 mask → coverage 0
+    QImage zero(sz, QImage::Format_Grayscale8);
+    zero.fill(0);
+    QCOMPARE(sel::coverage(zero), 0);
+
+    // resampleMask:尺寸一致原样返回(同一地址内容)
+    const QImage same = sel::resampleMask(r, sz);
+    QCOMPARE(same.size(), sz);
+    QCOMPARE(maskValue(same, 3, 3), 255);
+
+    // resampleMask:缩放后仍是灰度且尺寸正确
+    const QImage small = sel::resampleMask(r, QSize(4, 4));
+    QCOMPARE(small.size(), QSize(4, 4));
+    QCOMPARE(small.format(), QImage::Format_Grayscale8);
+
+    // null mask 传给 resampleMask → null
+    QVERIFY(sel::resampleMask(QImage(), sz).isNull());
+}
+
+void TestDocument::selBlendByMaskRespectsShape()
+{
+    // base 全红,processed 全蓝,mask 中心 4x4 为 255,其余 0
+    QImage base(8, 8, QImage::Format_ARGB32);
+    base.fill(QColor(255, 0, 0, 255));
+    QImage processed(8, 8, QImage::Format_ARGB32);
+    processed.fill(QColor(0, 0, 255, 255));
+    const QImage mask = makeCenterMask4();
+
+    const QImage out = sel::blendByMask(base, processed, mask);
+    QCOMPARE(out.size(), base.size());
+
+    // 选区内(中心)→ 完全变成 processed(蓝)
+    const QColor inside = out.pixelColor(4, 4);
+    QCOMPARE(inside.blue(), 255);
+    QCOMPARE(inside.red(), 0);
+
+    // 选区外(角落)→ 保持 base(红)
+    const QColor outside = out.pixelColor(0, 0);
+    QCOMPARE(outside.red(), 255);
+    QCOMPARE(outside.blue(), 0);
+
+    // null mask → 原样返回 base(向后兼容:整层处理)
+    const QImage noMask = sel::blendByMask(base, processed, QImage());
+    QCOMPARE(noMask, base);
+
+    // 全 0 mask → 等价于不生效,仍返回 base 内容
+    QImage zeroMask(8, 8, QImage::Format_Grayscale8);
+    zeroMask.fill(0);
+    const QImage zeroOut = sel::blendByMask(base, processed, zeroMask);
+    QCOMPARE(zeroOut.pixelColor(4, 4), QColor(255, 0, 0, 255));
+    QCOMPARE(zeroOut.pixelColor(0, 0), QColor(255, 0, 0, 255));
+
+    // 中间值(羽化)→ 线性插值
+    QImage half(8, 8, QImage::Format_Grayscale8);
+    half.fill(128);
+    const QImage halfOut = sel::blendByMask(base, processed, half);
+    const QColor c = halfOut.pixelColor(4, 4);
+    // 红 = 255 + (0-255)*128/255 ≈ 127,蓝 = 0 + 255*128/255 ≈ 128
+    QVERIFY2(c.red() > 120 && c.red() < 135, qPrintable(QString("red=%1").arg(c.red())));
+    QVERIFY2(c.blue() > 120 && c.blue() < 135, qPrintable(QString("blue=%1").arg(c.blue())));
+}
+
+void TestDocument::selClearByMaskRespectsShape()
+{
+    QImage src(8, 8, QImage::Format_ARGB32);
+    src.fill(QColor(0, 200, 0, 255)); // 全不透明绿
+    const QImage mask = makeCenterMask4();
+
+    const QImage out = sel::clearByMask(src, QRect(2, 2, 4, 4), mask);
+    QVERIFY(!out.isNull());
+    QCOMPARE(out.size(), src.size());
+
+    // 选区内 → 透明
+    QCOMPARE(out.pixelColor(4, 4).alpha(), 0);
+    // 选区外 → 仍是不透明绿
+    QCOMPARE(out.pixelColor(0, 0).alpha(), 255);
+    QCOMPARE(out.pixelColor(0, 0).green(), 200);
+
+    // 原始 src 不被修改(值语义)
+    QCOMPARE(src.pixelColor(4, 4).alpha(), 255);
+
+    // 无 mask → 退回矩形清除
+    const QImage rectOut = sel::clearByMask(src, QRect(0, 0, 2, 2), QImage());
+    QVERIFY(!rectOut.isNull());
+    QCOMPARE(rectOut.pixelColor(0, 0).alpha(), 0);   // rect 内清除
+    QCOMPARE(rectOut.pixelColor(7, 7).alpha(), 255); // rect 外保留
+
+    // 全 0 mask → 无任何像素被触及 → 返回 null(调用方可跳过撤销记录)
+    QImage zeroMask(8, 8, QImage::Format_Grayscale8);
+    zeroMask.fill(0);
+    QVERIFY(sel::clearByMask(src, QRect(2, 2, 4, 4), zeroMask).isNull());
+
+    // null src → null
+    QVERIFY(sel::clearByMask(QImage(), QRect(0, 0, 2, 2), mask).isNull());
+}
+
+void TestDocument::selCropToMaskBounds()
+{
+    QImage src(8, 8, QImage::Format_ARGB32);
+    src.fill(QColor(10, 20, 30, 255));
+    const QImage mask = makeCenterMask4(); // 中心 4x4 → (2,2)-(5,5)
+
+    // 有 mask:裁剪范围由 mask bbox 决定
+    const QImage out = sel::cropToMask(src, QRect(), mask);
+    QCOMPARE(out.size(), QSize(4, 4));
+    QCOMPARE(out.pixelColor(0, 0), QColor(10, 20, 30, 255));
+
+    // mask bbox 与 rect 求交集
+    const QImage out2 = sel::cropToMask(src, QRect(0, 0, 8, 8), mask);
+    QCOMPARE(out2.size(), QSize(4, 4));
+
+    // 无 mask → 按 rect 裁剪
+    const QImage out3 = sel::cropToMask(src, QRect(2, 2, 4, 4), QImage());
+    QCOMPARE(out3.size(), QSize(4, 4));
+
+    // rect 完全在图外 → null
+    QVERIFY(sel::cropToMask(src, QRect(100, 100, 4, 4), QImage()).isNull());
+
+    // 全 0 mask → 无有效区域 → null
+    QImage zeroMask(8, 8, QImage::Format_Grayscale8);
+    zeroMask.fill(0);
+    QVERIFY(sel::cropToMask(src, QRect(), zeroMask).isNull());
+
+    // null src → null
+    QVERIFY(sel::cropToMask(QImage(), QRect(0, 0, 4, 4), mask).isNull());
+}
+
+void TestDocument::clearMaskCommandUndoRedo()
+{
+    // ClearMaskCommand:按 mask 形状清除,undo 完整还原,redo 再次清除
+    Document doc(QSize(8, 8));
+    auto *layer = new Layer(QStringLiteral("L"), QSize(8, 8), QColor(0, 200, 0, 255));
+    doc.addLayer(layer);
+    const QImage mask = makeCenterMask4();
+    const QRect rect(2, 2, 4, 4);
+    const QImage before = layer->pixels().copy(rect);
+
+    QUndoStack stack;
+    stack.push(new ClearMaskCommand(layer, rect, mask, before));
+
+    // redo(首次执行):mask 覆盖区域被清透明
+    QCOMPARE(layer->pixels().pixelColor(4, 4).alpha(), 0);
+    // 选区外保持原样
+    QCOMPARE(layer->pixels().pixelColor(0, 0).alpha(), 255);
+    QCOMPARE(layer->pixels().pixelColor(0, 0).green(), 200);
+
+    // undo:恢复 rect 内原始像素
+    stack.undo();
+    QCOMPARE(layer->pixels().pixelColor(4, 4), QColor(0, 200, 0, 255));
+    QCOMPARE(layer->pixels().pixelColor(2, 2), QColor(0, 200, 0, 255));
+
+    // redo:再次清除
+    stack.redo();
+    QCOMPARE(layer->pixels().pixelColor(4, 4).alpha(), 0);
 }
 
 QTEST_MAIN(TestDocument)

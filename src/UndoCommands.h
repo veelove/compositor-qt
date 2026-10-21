@@ -54,6 +54,24 @@ private:
     QImage m_before;
 };
 
+// 按 mask 形状清除:把 mask 覆盖到的像素置为透明(而非矩形)。
+// m_rect 只是 mask 的 boundingRect,用于快速定位与 undo 快照裁剪。
+// 相比 ClearRectCommand,本命令尊重 Magic Wand 的真实选区轮廓。
+class ClearMaskCommand : public QUndoCommand
+{
+public:
+    ClearMaskCommand(Layer *layer, const QRect &rect, const QImage &mask,
+                     const QImage &before, QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    Layer *m_layer;
+    QRect m_rect;
+    QImage m_mask;
+    QImage m_before;
+};
+
 // 调色 LUT:对 Document.renderLut 做 before/after 记录(非破坏性),
 // undo/redo 切换 LUT,从而触发重绘。
 class AdjustLutCommand : public QUndoCommand
