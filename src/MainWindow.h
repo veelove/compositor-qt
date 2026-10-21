@@ -85,8 +85,8 @@ private:
     void adjColorBalanceLive();
 
     void onColorPicked(const QColor &color);
-    void onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifier modifiers);
-    void onRectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifier modifiers);
+    void onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifiers modifiers);
+    void onRectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifiers modifiers);
     void onUndoStackChanged();
     // 按选区裁剪(Magic Wand 用 mask 轮廓,RectSelect 用矩形)
     void cropToSelection();
@@ -99,7 +99,7 @@ private:
     // Layer 菜单:通过剪贴的图层(按当前选区抠出独立图层)
     void layerViaMask();
     // 修饰键 → 布尔运算模式
-    static sel::CombineOp combineOpFor(Qt::KeyboardModifier mods, bool hasExistingSelection);
+    static sel::CombineOp combineOpFor(Qt::KeyboardModifiers mods, bool hasExistingSelection);
 
     QTabWidget *m_tabs = nullptr;
     LayersPanel *m_layersPanel = nullptr;

@@ -7,3 +7,4 @@ CMakeUserPresets.json
 .idea/
 .DS_Store
 Thumbs.db
+build-local/
