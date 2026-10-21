@@ -949,7 +949,7 @@ void MainWindow::onColorPicked(const QColor &color)
     statusBar()->showMessage(tr("画笔颜色: %1").arg(color.name()), 3000);
 }
 
-sel::CombineOp MainWindow::combineOpFor(Qt::KeyboardModifiers mods, bool hasExistingSelection)
+sel::CombineOp MainWindow::combineOpFor(Qt::KeyboardModifier mods, bool hasExistingSelection)
 {
     const bool shift = mods.testFlag(Qt::ShiftModifier);
     const bool alt = mods.testFlag(Qt::AltModifier);
@@ -964,7 +964,7 @@ sel::CombineOp MainWindow::combineOpFor(Qt::KeyboardModifiers mods, bool hasExis
     return sel::CombineOp::Union;
 }
 
-void MainWindow::onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifiers modifiers)
+void MainWindow::onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifier modifiers)
 {
     Document *doc = currentDocument();
     if (!doc) { statusBar()->showMessage(tr("没有活动文档"), 3000); return; }
@@ -1061,7 +1061,7 @@ void MainWindow::onMagicWand(const QPoint &canvasPos, Qt::KeyboardModifiers modi
         5000);
 }
 
-void MainWindow::onRectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifiers modifiers)
+void MainWindow::onRectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifier modifiers)
 {
     CanvasView *canvas = currentCanvas();
     Document *doc = currentDocument();

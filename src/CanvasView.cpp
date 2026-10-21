@@ -396,7 +396,7 @@ void CanvasView::pickColor(const QPoint &canvasPos)
 }
 
 // ---------------------------- RectSelect 工具 ----------------------------
-void CanvasView::beginSelect(const QPoint &canvasPos, Qt::KeyboardModifiers mods)
+void CanvasView::beginSelect(const QPoint &canvasPos, Qt::KeyboardModifier mods)
 {
     m_selecting = true;
     m_selectStart = canvasPos;

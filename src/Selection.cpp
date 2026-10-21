@@ -171,8 +171,13 @@ QImage combine(const QImage &base, const QImage &add, CombineOp op, const QSize 
         return {};
 
     // 空集语义:null 视为全 0
-    if (base.isNull() && add.isNull())
-        return op == CombineOp::Union ? QImage() : (QImage(targetSize, QImage::Format_Grayscale8));
+    if (base.isNull() && add.isNull()) {
+        if (op == CombineOp::Union)
+            return QImage(); // 空 ∪ 空 = 空(null 表示"无 mask")
+        QImage empty(targetSize, QImage::Format_Grayscale8);
+        empty.fill(0);
+        return empty;
+    }
 
     if (base.isNull()) {
         // a = 空集:a ∪ b = b;a - b = 空;a ∩ b = 空

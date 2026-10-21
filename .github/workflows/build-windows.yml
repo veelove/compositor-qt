@@ -27,12 +27,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: |
-          set -o pipefail
-          cmake --build build 2>&1 | tee build.log
-          echo "###BUILD_ERRORS_BEGIN###"
-          grep -nE "error [A-Z]+[0-9]+|error:|fatal error" build.log | head -40 || echo "(no error lines matched)"
-          echo "###BUILD_ERRORS_END###"
+        run: cmake --build build
 
       - name: Test
         if: ${{ false }}  # Windows headless CI 上 Qt offscreen 平台仍需调,先跳过

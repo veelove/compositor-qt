@@ -7,8 +7,6 @@
 #include <QSize>
 #include <QWidget>
 
-#include <Qt>
-
 #include <memory>
 
 class Document;
@@ -65,11 +63,11 @@ signals:
     void cursorInfoChanged(const QString &text);
     void toolChanged(Tool tool);
     void colorPicked(const QColor &color); // 吸管取色
-    // 智能选择(单点)。modifiers 用 Qt::KeyboardModifiers 传递 Shift/Alt,
+    // 智能选择(单点)。modifiers 用 Qt::KeyboardModifier 传递 Shift/Alt,
     // 由 MainWindow 结合"已有选区"决定 Union / Subtract / Intersect。
-    void magicWandTriggered(const QPoint &canvasPos, Qt::KeyboardModifiers modifiers);
+    void magicWandTriggered(const QPoint &canvasPos, Qt::KeyboardModifier modifiers);
     // 矩形选区完成(鼠标松开)。同样携带修饰键用于布尔运算。
-    void rectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifiers modifiers);
+    void rectSelectFinished(const QRect &canvasRect, Qt::KeyboardModifier modifiers);
     void selectionChanged(const QRect &rect); // 选区变化(magicWand 或 RectSelect 都触发)
 
 protected:
@@ -98,7 +96,7 @@ private:
     void dragMove(const QPoint &canvasPos);
     void endMove();
     void pickColor(const QPoint &canvasPos);
-    void beginSelect(const QPoint &canvasPos, Qt::KeyboardModifiers mods);
+    void beginSelect(const QPoint &canvasPos, Qt::KeyboardModifier mods);
     void dragSelect(const QPoint &canvasPos);
     void endSelect();
     void drawSelectionOverlay(QPainter &p, const QRectF &docRect);
@@ -134,5 +132,5 @@ private:
     QPoint m_selectStart;       // 选区起点(画布坐标)
     QRect m_selection;          // 定稿后的选区(画布坐标)
     QImage m_selectionMask;     // magicWand 全图 mask(可能大于 boundingRect)
-    Qt::KeyboardModifiers m_selectionModifiers = Qt::NoModifier; // 拖拽时的 Shift/Alt
+    Qt::KeyboardModifier m_selectionModifiers = Qt::NoModifier; // 拖拽时的 Shift/Alt
 };
