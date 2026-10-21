@@ -160,7 +160,7 @@ ImportResult Reader::read(const QByteArray &data)
             throw QStringLiteral("PSD: 不支持的版本 %1").arg(version);
         r.header.version = version;
         c.skip(6);                  // reserved
-        c.skip(2);                  // channels
+        r.header.channels = c.u16();
         r.header.canvasHeight = c.u32();
         r.header.canvasWidth  = c.u32();
         r.header.depth        = c.u16();
@@ -270,43 +270,47 @@ ImportResult Reader::read(const QByteArray &data)
             c.seek(sectionEnd);
         }
 
-        // Image Data(整张合成图,扁平化,通常 4 通道 RGB+A)
+        // Image Data(整张合成图,扁平化)
+        // PSD 规范:整个 image data section **只有一个**压缩标志(不是每通道一个),
+        // 之后按顺序排布各通道数据;每个通道可选带行长表。
         r.composite = QImage(r.header.canvasWidth, r.header.canvasHeight, QImage::Format_ARGB32);
         r.composite.fill(Qt::white);
 
-        const int channelCount = std::min<int>(3, 4); // 我们合成图固定 RGBA
-        // PSD 文件中 image data 实际只放 RGB(3 通道,因 alpha 在图层段);3 通道
-        // 这里按 3 通道读(R/G/B),后面从 layers 合成 alpha
-        QVector<QByteArray> imgChans(3);
-        QVector<QVector<uint16_t>> imgRowLens(3);
-        for (int ch = 0; ch < 3; ++ch) {
-            const uint16_t enc = c.u16();
-            const int expected = r.header.canvasWidth * r.header.canvasHeight;
-            if (enc == 0) {
+        // 通道数取 min(header.channels, 4);至少读 RGB 三通道
+        const int totalCh = qBound(3, r.header.channels, 4);
+        QVector<QByteArray> imgChans(totalCh);
+        // compression:0=Raw, 1=RLE(PackBits)。整个 section 共享一个。
+        const uint16_t compression = c.u16();
+        if (compression != 0 && compression != 1)
+            throw QStringLiteral("PSD: image data 编码 %1 不支持").arg(compression);
+
+        const int expected = r.header.canvasWidth * r.header.canvasHeight;
+        for (int ch = 0; ch < totalCh; ++ch) {
+            if (compression == 0) {
                 imgChans[ch] = c.bytes(expected);
-            } else if (enc == 1) {
-                QByteArray raw;
-                raw.reserve(expected);
-                QVector<uint16_t> rl(r.header.canvasHeight);
-                for (int y = 0; y < r.header.canvasHeight; ++y)
-                    rl[y] = c.u16();
-                for (int y = 0; y < r.header.canvasHeight; ++y) {
-                    const QByteArray comp = c.bytes(rl[y]);
-                    raw.append(Cursor::packBitsDecode(comp, r.header.canvasWidth));
-                }
-                imgChans[ch] = raw;
-            } else {
-                throw QStringLiteral("PSD: image data 编码 %1 不支持").arg(enc);
+                continue;
             }
+            // RLE:本通道先跟 height 个 u16 行长,再跟各行压缩数据
+            QVector<uint16_t> rl(r.header.canvasHeight);
+            for (int y = 0; y < r.header.canvasHeight; ++y)
+                rl[y] = c.u16();
+            QByteArray raw;
+            raw.reserve(expected);
+            for (int y = 0; y < r.header.canvasHeight; ++y) {
+                const QByteArray comp = c.bytes(rl[y]);
+                raw.append(Cursor::packBitsDecode(comp, r.header.canvasWidth));
+            }
+            imgChans[ch] = raw;
         }
-        // 写进 composite 图像
+        // 写进 composite 图像(R/G/B 必存在,第 4 通道为 alpha)
         for (int y = 0; y < r.header.canvasHeight; ++y) {
             for (int x = 0; x < r.header.canvasWidth; ++x) {
                 const int i = y * r.header.canvasWidth + x;
                 const int r8 = static_cast<uint8_t>(imgChans[0].at(i));
                 const int g8 = static_cast<uint8_t>(imgChans[1].at(i));
                 const int b8 = static_cast<uint8_t>(imgChans[2].at(i));
-                r.composite.setPixelColor(x, y, QColor(r8, g8, b8));
+                const int a8 = totalCh > 3 ? static_cast<uint8_t>(imgChans[3].at(i)) : 255;
+                r.composite.setPixelColor(x, y, QColor(r8, g8, b8, a8));
             }
         }
 

@@ -31,7 +31,7 @@ struct LevelsParams
 };
 
 // 一次性 LUT 应用:对一个 8 位值执行黑场/白场/伽马/输出范围
-inline uint8_t applyLevelRange(uint8_t v, const LevelRange &r);
+uint8_t applyLevelRange(uint8_t v, const LevelRange &r);
 
 // 对整张图像应用 Levels 调整(就地修改 dest)
 // algParams:LevelsParams

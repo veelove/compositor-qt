@@ -85,7 +85,7 @@ LevelRange LevelRange::normalized() const
     r.white      = std::isfinite(white)   ? clampD(white, r.black + 1, 255)      : 255;
     r.gamma      = std::isfinite(gamma)   ? clampD(gamma, 0.1, 9.99)            : 1.0;
     r.outputBlack = std::isfinite(outputBlack) ? clampD(outputBlack, 0, 255)    : 0;
-    r.outputWhite = std::isfinite(outputWhite) ? clampD(outputWhite, r.outputBlack, 255) : 255;
+    r.outputWhite = std::isfinite(outputWhite) ? clampD(outputWhite, 0, 255)    : 255;
     return r;
 }
 
@@ -93,7 +93,7 @@ uint8_t applyLevelRange(uint8_t v, const LevelRange &r)
 {
     LevelRange n = r.normalized();
     const double in = clampD((v - n.black) / (n.white - n.black), 0.0, 1.0);
-    const double corrected = std::pow(in, 1.0 / n.gamma);
+    const double corrected = std::pow(in, n.gamma);
     const double out = (n.outputBlack + corrected * (n.outputWhite - n.outputBlack)) / 255.0;
     return clampByte(static_cast<int>(out * 255));
 }
@@ -258,7 +258,7 @@ double curveSlope(const QVector<CurvePoint> &p, int i)
 QVector<int> buildCurveLut(const QVector<CurvePoint> &points)
 {
     QVector<int> lut(256, 0);
-    if (points.size() < 2)
+    if (points.isEmpty())
         return lut;
     // 保证端点固定为 (0,0) 和 (255,255),即使上游没传
     QVector<CurvePoint> p = points;
@@ -269,6 +269,9 @@ QVector<int> buildCurveLut(const QVector<CurvePoint> &points)
     // 强制端点
     p.first() = {0.0, 0.0};
     p.last()  = {255.0, 255.0};
+
+    if (p.size() < 2)
+        return lut;
 
     // 对每个输出字节 0..255,找到包含它的区间并计算三次 Hermite
     int seg = 0;

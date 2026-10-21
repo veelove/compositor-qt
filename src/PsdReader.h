@@ -11,6 +11,7 @@ namespace psd {
 struct Header
 {
     int version = 0;          // 1=PSD, 2=PSB
+    int channels = 0;         // 通道数(header 字段)
     int canvasWidth = 0;
     int canvasHeight = 0;
     int depth = 0;            // 期望 8(本 MVP 只支持 8 位)

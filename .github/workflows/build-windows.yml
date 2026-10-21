@@ -30,7 +30,6 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        if: ${{ false }}  # Windows headless CI 上 Qt offscreen 平台仍需调,先跳过
         shell: bash
         run: |
           set +e  # 任何一步失败都继续,最后整体检查 tst_document 的退出码

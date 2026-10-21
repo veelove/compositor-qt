@@ -258,7 +258,6 @@ QImage boxBlurGrayscale(const QImage &src, int radius)
 
     QImage out(w, h, QImage::Format_Grayscale8);
     for (int y = 0; y < h; ++y) {
-        const uchar *tmpRow = tmp.constScanLine(y);
         uchar *dstRow = out.scanLine(y);
         for (int x = 0; x < w; ++x) {
             int sum = 0;
@@ -266,7 +265,7 @@ QImage boxBlurGrayscale(const QImage &src, int radius)
                 int sy = y + k;
                 if (sy < 0) sy = 0;
                 else if (sy >= h) sy = h - 1;
-                sum += tmpRow[sy * w + x];
+                sum += tmp.constScanLine(sy)[x];
             }
             dstRow[x] = uchar(sum / window);
         }
@@ -327,20 +326,25 @@ QImage shrinkMask(const QImage &mask, int radius)
     const int h = m.height();
 
     // 形态学腐蚀:dst(x,y) = min(src(x+dx, y+dy)),dx,dy ∈ [-r, r]
+    // 边界外视为 0(无选区),与 Photoshop 收缩语义一致。
     QImage out(w, h, QImage::Format_Grayscale8);
     for (int y = 0; y < h; ++y) {
         uchar *dst = out.scanLine(y);
         for (int x = 0; x < w; ++x) {
             int worst = 255;
-            for (int dy = -radius; dy <= radius; ++dy) {
-                int sy = y + dy;
-                if (sy < 0) sy = 0;
-                else if (sy >= h) sy = h - 1;
+            for (int dy = -radius; dy <= radius && worst > 0; ++dy) {
+                const int sy = y + dy;
+                if (sy < 0 || sy >= h) {
+                    worst = 0;
+                    break;
+                }
                 const uchar *srcRow = m.constScanLine(sy);
-                for (int dx = -radius; dx <= radius; ++dx) {
-                    int sx = x + dx;
-                    if (sx < 0) sx = 0;
-                    else if (sx >= w) sx = w - 1;
+                for (int dx = -radius; dx <= radius && worst > 0; ++dx) {
+                    const int sx = x + dx;
+                    if (sx < 0 || sx >= w) {
+                        worst = 0;
+                        break;
+                    }
                     if (srcRow[sx] < worst)
                         worst = srcRow[sx];
                 }
