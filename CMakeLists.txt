@@ -29,6 +29,9 @@ qt_add_library(CompositorCore STATIC
     src/Geometry.h src/Geometry.cpp
     src/RawProvider.h src/RawProvider.cpp
     src/VisionProvider.h src/VisionProvider.cpp
+    # CanvasView 放进核心库:SelectionCommand 需要 CanvasView 完整定义,
+    # 单测也直接驱动 CanvasView 选区 API,不能只编进可执行目标。
+    src/CanvasView.h src/CanvasView.cpp
 )
 target_include_directories(CompositorCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui Qt6::OpenGL)
@@ -37,7 +40,6 @@ target_link_libraries(CompositorCore PUBLIC Qt6::Widgets Qt6::Gui Qt6::OpenGL)
 qt_add_executable(CompositorQt
     src/main.cpp
     src/MainWindow.h src/MainWindow.cpp
-    src/CanvasView.h src/CanvasView.cpp
     src/LayersPanel.h src/LayersPanel.cpp
     src/DocumentTab.h src/DocumentTab.cpp
     src/FiltersUi.h src/FiltersUi.cpp
