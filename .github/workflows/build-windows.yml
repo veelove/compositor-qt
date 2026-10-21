@@ -51,8 +51,19 @@ jobs:
           echo "=== end (exit $TEST_EXIT) ==="
           exit $TEST_EXIT
 
-      - name: Package runtime (smoke)
+      - name: Package runtime
         shell: bash
         run: |
-          windeployqt --release --dir deploy build/CompositorQt.exe
-          ls deploy | head -20
+          # 用 windeployqt 收集 CompositorQt.exe 运行所需的 Qt DLL、平台插件、QML 等
+          "$QT_ROOT_DIR/bin/windeployqt.exe" --release --dir deploy build/CompositorQt.exe
+          # vision_tool.py 与 exe 同目录,VisionProvider::detectScript 才能找到
+          cp tools/vision_tool.py deploy/
+          ls deploy | head -30
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CompositorQt-windows-x64
+          path: deploy
+          if-no-files-found: error
+          retention-days: 14
