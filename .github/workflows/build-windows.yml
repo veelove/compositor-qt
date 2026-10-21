@@ -54,11 +54,19 @@ jobs:
       - name: Package runtime
         shell: bash
         run: |
-          # 用 windeployqt 收集 CompositorQt.exe 运行所需的 Qt DLL、平台插件、QML 等
-          "$QT_ROOT_DIR/bin/windeployqt.exe" --release --dir deploy build/CompositorQt.exe
+          mkdir -p deploy
+          # 先把主程序 exe 和测试用 exe 都拷到 deploy/(windeployqt 不会自动复制 exe)
+          cp build/CompositorQt.exe deploy/ 2>&1
+          ls -la build/CompositorQt.exe
+          # 用 windeployqt 收集运行所需的 Qt DLL / 平台插件 / QML / translations
+          "$QT_ROOT_DIR/bin/windeployqt.exe" --release --dir deploy --no-system-d3d-compiler --no-opengl-sw deploy/CompositorQt.exe
+          WDEPLOYQT_EXIT=$?
+          echo "windeployqt exit=$WDEPLOYQT_EXIT"
           # vision_tool.py 与 exe 同目录,VisionProvider::detectScript 才能找到
           cp tools/vision_tool.py deploy/
-          ls deploy | head -30
+          # 列出 deploy 里所有顶层条目确认 exe 在
+          echo "=== deploy contents ==="
+          ls -la deploy/ | head -30
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
